@@ -1,0 +1,115 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row">
+  <div class="col-lg-8 col-md-10 mx-auto">
+
+    <div class="card shadow-sm">
+
+      <!-- HEADER -->
+      <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">
+          Upgrade Request #{{ req.id }}
+        </h4>
+
+        <span>
+          {% if req.status == "PENDING" %}
+            <span class="badge bg-warning text-dark">Pending</span>
+          {% elif req.status == "APPROVED" %}
+            <span class="badge bg-success">Approved</span>
+          {% else %}
+            <span class="badge bg-danger">Rejected</span>
+          {% endif %}
+        </span>
+      </div>
+
+      <!-- BODY -->
+      <div class="card-body">
+
+        <!-- BASIC INFO -->
+        <div class="row g-3 mb-3">
+
+          <div class="col-md-6">
+            <div class="text-muted small">Church</div>
+            <strong>{{ req.church.name }}</strong>
+          </div>
+
+          <div class="col-md-6">
+            <div class="text-muted small">Requested On</div>
+            {{ req.created_at|date:"d M Y" }}
+          </div>
+
+          <div class="col-md-6">
+            <div class="text-muted small">Current Package</div>
+            <span class="badge bg-secondary">
+              {{ req.current_package.name }}
+            </span>
+          </div>
+
+          <div class="col-md-6">
+            <div class="text-muted small">Requested Package</div>
+            <span class="badge bg-info">
+              {{ req.requested_package.name }}
+            </span>
+            {% if req.requested_capacity %}
+              <div class="small text-muted">
+                {{ req.requested_capacity }} members
+              </div>
+            {% endif %}
+          </div>
+
+        </div>
+
+        <!-- REASON -->
+        {% if req.reason %}
+        <hr>
+        <div class="mb-3">
+          <div class="text-muted small mb-1">Reason for Upgrade</div>
+          <div class="border rounded p-3 bg-light">
+            {{ req.reason }}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- ACTIONS -->
+        <hr>
+
+        {% if req.status == "PENDING" %}
+          <form method="post" class="d-flex gap-2">
+            {% csrf_token %}
+
+            <button name="action"
+                    value="approve"
+                    class="btn btn-success">
+              Approve Upgrade
+            </button>
+
+            <button name="action"
+                    value="reject"
+                    class="btn btn-danger"
+                    onclick="return confirm('Reject this upgrade request?');">
+              Reject Request
+            </button>
+          </form>
+        {% else %}
+          <div class="alert alert-secondary mb-0">
+            This upgrade request has already been processed.
+          </div>
+        {% endif %}
+
+      </div>
+
+      <!-- FOOTER -->
+      <div class="card-footer bg-light">
+        <a href="{% url 'adminpanel:upgrade_request_list' %}"
+           class="btn btn-outline-secondary">
+          ← Back to Upgrade Requests
+        </a>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

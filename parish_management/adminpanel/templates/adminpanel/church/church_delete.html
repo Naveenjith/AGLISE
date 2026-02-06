@@ -1,0 +1,79 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row">
+  <div class="col-lg-6 col-md-8 col-sm-12">
+
+    <div class="card card-outline card-danger">
+
+      <div class="card-header">
+        <h3 class="card-title text-danger">
+          Deactivate / Soft Delete Church
+        </h3>
+      </div>
+
+      <div class="card-body">
+
+        {% if error %}
+          <div class="alert alert-danger">
+            {{ error }}
+          </div>
+
+          <a href="{% url 'adminpanel:church_detail' church.id %}"
+             class="btn btn-secondary">
+            Back
+          </a>
+
+        {% else %}
+          <p class="mb-3">
+            You are about to <strong>soft delete</strong> the following church:
+          </p>
+
+          <h5 class="text-danger">
+            {{ church.name }}
+          </h5>
+
+          <div class="alert alert-warning mt-3">
+            <strong>What does this mean?</strong>
+            <ul class="mb-0">
+              <li>The church will be marked as <strong>inactive</strong></li>
+              <li>No data will be permanently deleted</li>
+              <li>You can restore this church later</li>
+              <li>Billing history will remain intact</li>
+            </ul>
+          </div>
+
+          <form method="post" class="mt-4">
+            {% csrf_token %}
+
+            <div class="d-flex justify-content-between">
+              <a href="{% url 'adminpanel:church_detail' church.id %}"
+                 class="btn btn-secondary">
+                Cancel
+              </a>
+              <div class="form-check mb-3">
+  <input class="form-check-input"
+         type="checkbox"
+         required
+         id="confirmDelete">
+  <label class="form-check-label" for="confirmDelete">
+    I understand this will deactivate the church
+  </label>
+</div>
+
+
+              <button type="submit"
+                      class="btn btn-danger">
+                Yes, Soft Delete Church
+              </button>
+            </div>
+          </form>
+        {% endif %}
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,121 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row">
+  <div class="col-12">
+
+    <div class="card card-outline card-primary shadow-sm">
+
+      <!-- ================= HEADER ================= -->
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0">Packages</h3>
+
+        <a href="{% url 'adminpanel:package_create' %}"
+           class="btn btn-primary btn-sm">
+          <i class="fas fa-plus me-1"></i> Add Package
+        </a>
+      </div>
+
+      <!-- ================= TABLE ================= -->
+      <div class="card-body p-0">
+        <div class="table-responsive">
+
+          <table class="table table-bordered table-hover align-middle mb-0">
+            <thead class="table-light text-center">
+              <tr>
+                <th class="text-start">Package</th>
+                <th>Members</th>
+                <th>Monthly</th>
+                <th>Yearly</th>
+                <th>Upgrade (M)</th>
+                <th>Upgrade (Y)</th>
+                <th style="width:140px;">Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {% for package in packages %}
+                <tr>
+
+                  <!-- PACKAGE NAME -->
+                  <td>
+                    <strong>{{ package.name }}</strong>
+
+                    {% if package.is_trial %}
+                      <span class="badge bg-info ms-2">Trial</span>
+                    {% endif %}
+
+                    {% if package.is_custom %}
+                      <span class="badge bg-warning text-dark ms-2">Custom</span>
+                    {% endif %}
+                  </td>
+
+                  <!-- MEMBER LIMIT -->
+                  <td class="text-center">
+                    {% if package.member_limit %}
+                      {{ package.member_limit }}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+
+                  <!-- PRICING -->
+                  <td class="text-end">
+                    ₹ {{ package.rate_per_member_monthly|floatformat:2 }}
+                  </td>
+
+                  <td class="text-end">
+                    ₹ {{ package.rate_per_member_yearly|floatformat:2 }}
+                  </td>
+
+                  <!-- UPGRADE PRICING -->
+                  <td class="text-end">
+                    {% if package.upgrade_rate_monthly %}
+                      ₹ {{ package.upgrade_rate_monthly|floatformat:2 }}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+
+                  <td class="text-end">
+                    {% if package.upgrade_rate_yearly %}
+                      ₹ {{ package.upgrade_rate_yearly|floatformat:2 }}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+
+                  <!-- ACTIONS -->
+                  <td class="text-center">
+                    <a href="{% url 'adminpanel:package_update' package.id %}"
+                       class="btn btn-sm btn-outline-primary me-1">
+                      Edit
+                    </a>
+
+                    <a href="{% url 'adminpanel:package_delete' package.id %}"
+                       class="btn btn-sm btn-outline-danger"
+                       onclick="return confirm('Delete this package?');">
+                      Delete
+                    </a>
+                  </td>
+
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="7" class="text-center text-muted py-4">
+                    No packages found.
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+
+          </table>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}

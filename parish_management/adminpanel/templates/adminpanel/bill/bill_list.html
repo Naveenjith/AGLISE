@@ -1,0 +1,134 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row">
+  <div class="col-12">
+
+    <div class="card card-outline card-secondary shadow-sm">
+
+      <!-- ================= HEADER ================= -->
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0">
+          Bills
+        </h3>
+      </div>
+
+      <!-- ================= BODY ================= -->
+      <div class="card-body">
+
+        <div class="table-responsive">
+          <table id="billTable"
+                 class="table table-bordered table-hover w-100">
+
+            <thead class="table-light">
+              <tr>
+                <th>ID</th>
+                <th>Church</th>
+                <th>Type</th>
+                <th class="text-end">Amount (₹)</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th class="text-center">Action</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {% for bill in bills %}
+                <tr>
+
+                  <!-- ID -->
+                  <td class="fw-semibold">
+                    #{{ bill.id }}
+                  </td>
+
+                  <!-- CHURCH -->
+                  <td>
+                    <a href="{% url 'adminpanel:church_detail' bill.church.id %}"
+                       class="fw-semibold text-decoration-none">
+                      {{ bill.church.name }}
+                    </a>
+                  </td>
+
+                  <!-- BILL TYPE -->
+                  <td>
+                    {% if bill.bill_type == "NEW" %}
+                      <span class="badge bg-primary">New</span>
+                    {% elif bill.bill_type == "UPGRADE" %}
+                      <span class="badge bg-info text-dark">Upgrade</span>
+                    {% elif bill.bill_type == "RENEW" %}
+                      <span class="badge bg-secondary">Renewal</span>
+                    {% else %}
+                      <span class="badge bg-light text-dark">
+                        {{ bill.bill_type }}
+                      </span>
+                    {% endif %}
+                  </td>
+
+                  <!-- AMOUNT -->
+                  <td class="text-end fw-bold">
+                    ₹ {{ bill.amount|floatformat:2 }}
+                  </td>
+
+                  <!-- STATUS -->
+                  <td>
+                    {% if bill.status == "PAID" %}
+                      <span class="badge bg-success">Paid</span>
+                    {% elif bill.status == "CANCELLED" %}
+                      <span class="badge bg-danger">Cancelled</span>
+                    {% else %}
+                      <span class="badge bg-warning text-dark">Unpaid</span>
+                    {% endif %}
+                  </td>
+
+                  <!-- DATE -->
+                  <td>
+                    {{ bill.created_at|date:"d M Y" }}
+                  </td>
+
+                  <!-- ACTION -->
+                  <td class="text-center">
+                    <a href="{% url 'adminpanel:bill_detail' bill.id %}"
+                       class="btn btn-sm btn-outline-primary">
+                      View
+                    </a>
+                  </td>
+
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="7" class="text-center text-muted py-4">
+                    No bills found.
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+  $(function () {
+    $('#billTable').DataTable({
+      pageLength: 25,
+      responsive: true,
+      order: [[5, 'desc']], // Sort by Date
+      columnDefs: [
+        { orderable: false, searchable: false, targets: 6 }
+      ],
+      dom:
+        "<'row mb-2'<'col-md-6'l><'col-md-6 text-end'f>>" +
+        "<'row'<'col-12'tr>>" +
+        "<'row mt-2'<'col-md-5'i><'col-md-7'p>>"
+    });
+  });
+</script>
+{% endblock %}
+
+{% endblock %}

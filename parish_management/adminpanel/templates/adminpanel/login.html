@@ -1,0 +1,66 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EGLISE Admin Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- AdminLTE -->
+  <link rel="stylesheet" href="{% static 'adminlte/dist/css/adminlte.min.css' %}">
+</head>
+
+<body class="login-page bg-body-tertiary">
+
+<div class="login-box">
+  <div class="card card-outline card-primary">
+
+    <div class="card-header text-center">
+      <h3 class="mb-0">EGLISE</h3>
+      <p class="text-muted mb-0">Admin Panel</p>
+    </div>
+
+    <div class="card-body">
+      <p class="login-box-msg">Sign in to start your session</p>
+
+      {% if error %}
+        <div class="alert alert-danger">
+          {{ error }}
+        </div>
+      {% endif %}
+
+      <form method="post">
+        {% csrf_token %}
+
+        <div class="mb-3">
+          <label class="form-label">Username</label>
+          <input type="text"
+                 name="username"
+                 class="form-control"
+                 placeholder="Enter username"
+                 required>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Password</label>
+          <input type="password"
+                 name="password"
+                 class="form-control"
+                 placeholder="Enter password"
+                 required>
+        </div>
+
+        <div class="d-grid">
+          <button type="submit" class="btn btn-primary">
+            Login
+          </button>
+        </div>
+      </form>
+    </div>
+
+  </div>
+</div>
+
+<script src="{% static 'adminlte/dist/js/adminlte.min.js' %}"></script>
+</body>
+</html>

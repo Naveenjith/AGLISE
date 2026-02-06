@@ -1,0 +1,109 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row">
+  <div class="col-xl-8 col-lg-9 col-md-11 mx-auto">
+
+    <form method="post">
+      {% csrf_token %}
+
+      <!-- ================= HEADER ================= -->
+      <div class="card card-outline card-primary shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h3 class="card-title mb-0">Create Package</h3>
+
+          <a href="{% url 'adminpanel:package_list' %}"
+             class="btn btn-sm btn-outline-secondary">
+            ← Back to Packages
+          </a>
+        </div>
+
+        <!-- ================= BASIC DETAILS ================= -->
+        <div class="card-body">
+          <h6 class="text-primary mb-3">Basic Information</h6>
+
+          <div class="row">
+            {% for field in form %}
+              {% if field.field.widget.input_type != "checkbox" %}
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">
+                    {{ field.label }}
+                    {% if field.field.required %}
+                      <span class="text-danger">*</span>
+                    {% endif %}
+                  </label>
+
+                  {{ field }}
+
+                  {% if field.help_text %}
+                    <div class="form-text">
+                      {{ field.help_text }}
+                    </div>
+                  {% endif %}
+
+                  {% for error in field.errors %}
+                    <div class="text-danger small">
+                      {{ error }}
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= FLAGS / OPTIONS ================= -->
+      <div class="card card-outline card-secondary shadow-sm mb-4">
+        <div class="card-header">
+          <h3 class="card-title">Package Options</h3>
+        </div>
+
+        <div class="card-body">
+          <div class="row">
+            {% for field in form %}
+              {% if field.field.widget.input_type == "checkbox" %}
+                <div class="col-md-4 mb-3">
+                  <div class="form-check">
+                    {{ field }}
+                    <label class="form-check-label ms-2">
+                      {{ field.label }}
+                    </label>
+                  </div>
+
+                  {% if field.help_text %}
+                    <div class="form-text">
+                      {{ field.help_text }}
+                    </div>
+                  {% endif %}
+
+                  {% for error in field.errors %}
+                    <div class="text-danger small">
+                      {{ error }}
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= ACTIONS ================= -->
+      <div class="d-flex justify-content-between">
+        <a href="{% url 'adminpanel:package_list' %}"
+           class="btn btn-outline-secondary">
+          Cancel
+        </a>
+
+        <button type="submit" class="btn btn-primary">
+          Save Package
+        </button>
+      </div>
+
+    </form>
+
+  </div>
+</div>
+
+{% endblock %}

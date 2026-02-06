@@ -1,0 +1,298 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row">
+  <div class="col-12 col-xl-10 mx-auto">
+
+    <!-- ================= CHURCH OVERVIEW ================= -->
+    <div class="card shadow-sm mb-4">
+
+      <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <div>
+          <h4 class="mb-0">{{ church.name }}</h4>
+          {% if church.is_active %}
+            <span class="badge bg-success mt-1">Active</span>
+          {% else %}
+            <span class="badge bg-danger mt-1">Inactive</span>
+          {% endif %}
+        </div>
+
+        <a href="{% url 'adminpanel:church_list' %}"
+           class="btn btn-sm btn-light">
+          ← Back to Churches
+        </a>
+      </div>
+
+      <div class="card-body">
+        <div class="row align-items-center">
+
+          <!-- LOGO -->
+          <div class="col-md-3 text-center mb-3 mb-md-0">
+            {% if church.logo %}
+              <img src="{{ church.logo.url }}"
+                   alt="{{ church.name }}"
+                   class="img-fluid rounded shadow-sm"
+                   style="max-height:160px;">
+            {% else %}
+              <div class="border rounded py-5 text-muted small">
+                No Church Logo
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- DETAILS -->
+          <div class="col-md-9">
+            <div class="row g-3">
+
+              <div class="col-md-6">
+                <small class="text-muted">Address</small>
+                <div class="fw-semibold">{{ church.address }}</div>
+              </div>
+
+              <div class="col-md-6">
+                <small class="text-muted">City</small>
+                <div class="fw-semibold">{{ church.city }}</div>
+              </div>
+
+              <div class="col-md-6">
+                <small class="text-muted">Diocese</small>
+                <div class="fw-semibold">{{ church.diocese_name }}</div>
+              </div>
+
+              <div class="col-md-6">
+                <small class="text-muted">Vicar</small>
+                <div class="fw-semibold">{{ church.vicar }}</div>
+              </div>
+
+              <div class="col-md-6">
+                <small class="text-muted">Email</small>
+                <div class="fw-semibold">{{ church.email }}</div>
+              </div>
+
+              <div class="col-md-6">
+                <small class="text-muted">Phone</small>
+                <div class="fw-semibold">{{ church.phone_number }}</div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= SUBSCRIPTION ================= -->
+    <div class="card shadow-sm mb-4">
+      <div class="card-header bg-info text-white">
+        <h5 class="mb-0">Subscription</h5>
+      </div>
+
+      <div class="card-body">
+        {% if subscription %}
+
+          {% if not subscription.is_active %}
+            <div class="alert alert-danger">
+              Subscription inactive — awaiting admin confirmation.
+            </div>
+          {% endif %}
+
+          <div class="row text-center g-3">
+
+            <div class="col-md-4">
+              <div class="border rounded p-3">
+                <small class="text-muted">Package</small>
+                <h6 class="mb-0">{{ subscription.package.name }}</h6>
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <div class="border rounded p-3">
+                <small class="text-muted">Billing Cycle</small>
+                <h6 class="mb-0">{{ subscription.billing_cycle }}</h6>
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <div class="border rounded p-3">
+                <small class="text-muted">Payment Status</small>
+                <h6 class="mb-0">{{ subscription.payment_status }}</h6>
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <div class="border rounded p-3">
+                <small class="text-muted">Start Date</small>
+                <div>{{ subscription.start_date|default:"—" }}</div>
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <div class="border rounded p-3">
+                <small class="text-muted">End Date</small>
+                <div>{{ subscription.end_date|default:"—" }}</div>
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <div class="border rounded p-3">
+                <small class="text-muted">Duration</small>
+                <div>{{ subscription.duration_months|default:"—" }} months</div>
+              </div>
+            </div>
+
+          </div>
+
+          {% if subscription.credit_balance > 0 %}
+            <div class="alert alert-success mt-3">
+              Credit Balance Available:
+              ₹ {{ subscription.credit_balance|floatformat:2 }}
+            </div>
+          {% endif %}
+
+          {% if subscription.package.is_trial %}
+            <div class="alert alert-info mt-3">
+              Trial Plan — Member limit:
+              {{ subscription.package.trial_member_limit }}
+            </div>
+          {% elif subscription.package.is_custom %}
+            <div class="alert alert-warning mt-3">
+              Custom Package — Capacity defined manually
+            </div>
+          {% else %}
+            <div class="alert alert-secondary mt-3">
+              Member Limit: {{ subscription.package.member_limit }}
+            </div>
+          {% endif %}
+
+        {% else %}
+          <div class="alert alert-secondary">
+            No subscription assigned.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ================= BILLING ================= -->
+    <div class="card shadow-sm mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Billing</h5>
+        <a href="{% url 'adminpanel:bill_list' %}?church={{ church.id }}"
+           class="btn btn-sm btn-outline-primary">
+          View All Bills
+        </a>
+      </div>
+
+      <div class="card-body p-0">
+        {% if bills %}
+          <table class="table table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>ID</th>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for bill in bills|slice:":5" %}
+              <tr>
+                <td>#{{ bill.id }}</td>
+                <td>{{ bill.bill_type }}</td>
+                <td>₹ {{ bill.amount }}</td>
+                <td>
+                  {% if bill.status == "PAID" %}
+                    <span class="badge bg-success">PAID</span>
+                  {% else %}
+                    <span class="badge bg-danger">UNPAID</span>
+                  {% endif %}
+                </td>
+                <td>{{ bill.created_at|date:"d M Y" }}</td>
+                <td class="text-end">
+                  <a href="{% url 'adminpanel:bill_detail' bill.id %}"
+                     class="btn btn-sm btn-primary">
+                    View
+                  </a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="p-3 text-muted">No bills generated yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ================= ADMIN ACTIONS ================= -->
+    <div class="card border-danger mb-4">
+      <div class="card-header bg-danger text-white">
+        <h5 class="mb-0">Admin Actions</h5>
+      </div>
+
+      <div class="card-body d-flex flex-wrap gap-2">
+
+        {% if church.is_active %}
+  <a href="{% url 'adminpanel:church_suspend' church.id %}"
+     class="btn btn-outline-secondary"
+     onclick="return confirm('Suspend this church?');">
+    Suspend Church
+  </a>
+
+{% else %}
+
+  {% if subscription and subscription.payment_status == "PAID" %}
+    <a href="{% url 'adminpanel:church_activate' church.id %}"
+       class="btn btn-outline-success">
+      Activate Church
+    </a>
+  {% else %}
+    <button class="btn btn-outline-secondary" disabled>
+      Activate Church
+    </button>
+    <span class="text-muted small ms-2">
+      (Waiting for payment)
+    </span>
+  {% endif %}
+
+  {% if not church.is_active and not church.is_deleted %}
+  <form method="post"
+        action="{% url 'adminpanel:church_delete' church.id %}">
+    {% csrf_token %}
+    <button type="submit"
+            class="btn btn-outline-danger"
+            onclick="return confirm('Soft delete this church? You can restore it later.');">
+      Delete Church
+    </button>
+  </form>
+{% endif %}
+
+
+{% endif %}
+
+
+        {% if church.is_deleted %}
+          <form method="post"
+                action="{% url 'adminpanel:church_hard_delete' church.id %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="btn btn-danger"
+                    onclick="return confirm('This will permanently delete ALL data. Continue?');">
+              Permanently Delete
+            </button>
+          </form>
+
+          <a href="{% url 'adminpanel:church_restore' church.id %}"
+             class="btn btn-success">
+            Restore Church
+          </a>
+        {% endif %}
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}

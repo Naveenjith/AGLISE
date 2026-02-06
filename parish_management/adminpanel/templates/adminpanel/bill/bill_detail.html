@@ -1,0 +1,217 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-xl-9 col-lg-10 col-md-12">
+
+    <div class="card card-outline card-primary mb-4">
+
+      <!-- ================= HEADER ================= -->
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h3 class="card-title mb-2">
+            Invoice No:
+            <strong>EG-INV-{{ bill.id|stringformat:"04d" }}</strong>
+          </h3>
+
+          <div class="mt-1">
+            <span class="text-muted small">Bill To:</span>
+            <strong class="ms-1">{{ church.name }}</strong>
+          </div>
+
+          <div class="text-muted small">
+            Billing Address: {{ church.address }}
+          </div>
+        </div>
+
+        <div class="text-end">
+          {% if bill.status == "PAID" %}
+            <span class="badge bg-success fs-6">PAID</span>
+          {% else %}
+            <span class="badge bg-danger fs-6">UNPAID</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card-body">
+
+        {% with bill.breakdown.line_items|default:bill.breakdown.items as items %}
+        {% with items.0 as item %}
+
+        <!-- ================= META ================= -->
+        <div class="row g-3 mb-4">
+
+          <div class="col-md-4">
+            <div class="text-muted small">Bill Type</div>
+            <strong>{{ bill.get_bill_type_display }}</strong>
+          </div>
+
+          <div class="col-md-4">
+            <div class="text-muted small">Billing Cycle</div>
+            <strong>{{ bill.billing_cycle }}</strong>
+          </div>
+
+          <!-- DURATION -->
+          <div class="col-md-4">
+            <div class="text-muted small">Duration</div>
+            <strong>
+              {% if bill.bill_type == "UPGRADE" %}
+                {{ item.remaining_months }}
+              {% else %}
+                {{ item.months }}
+              {% endif %}
+              month{{ bill.duration_months|pluralize }}
+            </strong>
+          </div>
+
+          <!-- ✅ MEMBERS (FIXED LOGIC) -->
+          <div class="col-md-4">
+            <div class="text-muted small">Total Members</div>
+            <strong>
+              {% if bill.bill_type == "UPGRADE" %}
+                {{ bill.breakdown.apply.custom_capacity|default:subscription.custom_capacity|default:subscription.package.member_limit }}
+              {% else %}
+                {{ item.capacity }}
+              {% endif %}
+            </strong>
+          </div>
+
+          <!-- RATE -->
+          <div class="col-md-4">
+            <div class="text-muted small">
+              {% if bill.bill_type == "UPGRADE" %}
+                Upgrade Rate (per member)
+              {% else %}
+                Rate (per member)
+              {% endif %}
+            </div>
+            <strong>
+              ₹
+              {% if bill.bill_type == "UPGRADE" %}
+                {{ item.upgrade_rate|floatformat:2 }}
+              {% else %}
+                {{ item.rate|floatformat:2 }}
+              {% endif %}
+            </strong>
+          </div>
+
+          <div class="col-md-6">
+            <div class="text-muted small">Created At</div>
+            {{ bill.created_at }}
+          </div>
+
+          {% if bill.paid_at %}
+          <div class="col-md-6">
+            <div class="text-muted small">Paid At</div>
+            {{ bill.paid_at }}
+          </div>
+          {% endif %}
+
+        </div>
+
+        {% endwith %}
+        {% endwith %}
+
+        <hr>
+
+        <!-- ================= BREAKDOWN ================= -->
+        <h5 class="mb-3">Bill Breakdown</h5>
+
+        {% with bill.breakdown.line_items|default:bill.breakdown.items as line_items %}
+        {% if line_items %}
+
+        <table class="table table-bordered align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Description</th>
+              <th>Details</th>
+              <th class="text-end">Amount (₹)</th>
+            </tr>
+          </thead>
+          <tbody>
+
+          {% for item in line_items %}
+
+            {% if item.type == "NEW" %}
+            <tr>
+              <td class="fw-semibold">New Subscription</td>
+              <td>
+                <ul class="mb-0 small">
+                  <li>Members: {{ item.capacity }}</li>
+                  <li>Rate: ₹ {{ item.rate|floatformat:2 }} per member</li>
+                  <li>Duration: {{ item.months }} months</li>
+                  <li class="text-muted">Calculation: {{ item.calculation }}</li>
+                </ul>
+              </td>
+              <td class="text-end fw-bold">
+                ₹ {{ item.total|floatformat:2 }}
+              </td>
+            </tr>
+            {% endif %}
+
+            {% if item.type == "UPGRADE" %}
+            <tr>
+              <td class="fw-semibold">Upgrade</td>
+              <td>
+                <ul class="mb-0 small">
+                  <li>Remaining months: {{ item.remaining_months }}</li>
+                  <li>Upgrade Rate: ₹ {{ item.upgrade_rate|floatformat:2 }}</li>
+                  {% if item.explanation %}
+                    <li class="text-muted">{{ item.explanation }}</li>
+                  {% endif %}
+                </ul>
+              </td>
+              <td class="text-end fw-bold">
+                ₹
+                {% if item.upgrade_amount %}
+                  {{ item.upgrade_amount|floatformat:2 }}
+                {% else %}
+                  {{ item.monthly_amount|floatformat:2 }}
+                {% endif %}
+              </td>
+            </tr>
+            {% endif %}
+
+          {% endfor %}
+          </tbody>
+        </table>
+
+        <div class="d-flex justify-content-end mt-3">
+          <div class="text-end">
+            <div class="text-muted small">Total Payable</div>
+            <h3 class="text-success mb-0">
+              ₹ {{ bill.breakdown.grand_total|floatformat:2 }}
+            </h3>
+          </div>
+        </div>
+
+        {% else %}
+          <div class="alert alert-warning">
+            No line items recorded for this bill.
+          </div>
+        {% endif %}
+        {% endwith %}
+
+      </div>
+
+      <div class="card-footer d-flex justify-content-between">
+        <a href="{% url 'adminpanel:church_detail' church.id %}"
+           class="btn btn-outline-secondary">
+          ← Back
+        </a>
+
+        {% if bill.status == "UNPAID" %}
+        <form method="post">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-success">
+            Mark as Paid & Activate
+          </button>
+        </form>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}

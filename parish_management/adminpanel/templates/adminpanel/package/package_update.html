@@ -1,0 +1,153 @@
+{% extends "adminpanel/base.html" %}
+
+{% block content %}
+
+<div class="row">
+  <div class="col-xl-8 col-lg-9 col-md-11 mx-auto">
+
+    <form method="post">
+      {% csrf_token %}
+
+      <!-- ================= HEADER ================= -->
+      <div class="card card-outline card-warning shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h3 class="card-title mb-0">
+            Edit Package
+            <small class="text-muted ms-2">— {{ package.name }}</small>
+          </h3>
+
+          <a href="{% url 'adminpanel:package_list' %}"
+             class="btn btn-sm btn-outline-secondary">
+            ← Back
+          </a>
+        </div>
+
+        <!-- ================= BASIC INFO ================= -->
+        <div class="card-body">
+          <h6 class="text-muted mb-3">Basic Information</h6>
+
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              {{ form.name.label_tag }}
+              {{ form.name }}
+              {% for error in form.name.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="col-md-6 mb-3">
+              {{ form.member_limit.label_tag }}
+              {{ form.member_limit }}
+              {% for error in form.member_limit.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- ================= PRICING ================= -->
+          <hr>
+          <h6 class="text-muted mb-3">Base Pricing</h6>
+
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              {{ form.rate_per_member_monthly.label_tag }}
+              {{ form.rate_per_member_monthly }}
+              {% for error in form.rate_per_member_monthly.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="col-md-6 mb-3">
+              {{ form.rate_per_member_yearly.label_tag }}
+              {{ form.rate_per_member_yearly }}
+              {% for error in form.rate_per_member_yearly.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- ================= UPGRADE PRICING ================= -->
+          <hr>
+          <h6 class="text-muted mb-3">Upgrade Pricing</h6>
+
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              {{ form.upgrade_rate_monthly.label_tag }}
+              {{ form.upgrade_rate_monthly }}
+              {% for error in form.upgrade_rate_monthly.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="col-md-6 mb-3">
+              {{ form.upgrade_rate_yearly.label_tag }}
+              {{ form.upgrade_rate_yearly }}
+              {% for error in form.upgrade_rate_yearly.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- ================= FLAGS ================= -->
+          <hr>
+          <h6 class="text-muted mb-3">Package Type</h6>
+
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <div class="form-check">
+                {{ form.is_trial }}
+                <label class="form-check-label ms-2">
+                  {{ form.is_trial.label }}
+                </label>
+              </div>
+              {% for error in form.is_trial.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="col-md-6 mb-3">
+              <div class="form-check">
+                {{ form.is_custom }}
+                <label class="form-check-label ms-2">
+                  {{ form.is_custom.label }}
+                </label>
+              </div>
+              {% for error in form.is_custom.errors %}
+                <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          {% if form.trial_member_limit %}
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                {{ form.trial_member_limit.label_tag }}
+                {{ form.trial_member_limit }}
+                {% for error in form.trial_member_limit.errors %}
+                  <div class="text-danger small">{{ error }}</div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+        </div>
+
+        <!-- ================= ACTIONS ================= -->
+        <div class="card-footer d-flex justify-content-between bg-light">
+          <a href="{% url 'adminpanel:package_list' %}"
+             class="btn btn-outline-secondary">
+            Cancel
+          </a>
+
+          <button type="submit" class="btn btn-warning">
+            Update Package
+          </button>
+        </div>
+      </div>
+
+    </form>
+
+  </div>
+</div>
+
+{% endblock %}

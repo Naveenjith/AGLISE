@@ -1,0 +1,193 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-xl-10 col-lg-11 col-md-12">
+
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+
+      <!-- ================= CHURCH DETAILS ================= -->
+      <div class="card card-outline card-primary mb-4">
+        <div class="card-header">
+          <h3 class="card-title">
+            Edit Church
+            <small class="text-muted ms-2">– {{ church.name }}</small>
+          </h3>
+        </div>
+
+        <div class="card-body">
+          <div class="row">
+            {% for field in church_form %}
+              <div class="col-md-4 mb-3">
+                <label class="form-label">
+                  {{ field.label }}
+                  {% if field.field.required %}
+                    <span class="text-danger">*</span>
+                  {% endif %}
+                </label>
+
+                {{ field }}
+
+                {% for error in field.errors %}
+                  <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= SUBSCRIPTION / PACKAGE ================= -->
+      <div class="card card-outline card-warning mb-4">
+        <div class="card-header">
+          <h3 class="card-title">Subscription & Billing</h3>
+        </div>
+
+        <div class="card-body">
+          <div class="row">
+
+            {% for field in sub_form %}
+              {% if field.name != "custom_capacity" %}
+                <div class="col-md-4 mb-3">
+                  <label class="form-label">{{ field.label }}</label>
+                  {{ field }}
+
+                  {% for error in field.errors %}
+                    <div class="text-danger small mt-1">{{ error }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% endfor %}
+
+            <!-- Custom Capacity -->
+            <div id="custom-capacity-wrapper" class="col-md-4 mb-3">
+              <label class="form-label">Custom Member Capacity</label>
+              {{ sub_form.custom_capacity }}
+              <div class="form-text">
+                Required only for custom packages
+              </div>
+            </div>
+
+          </div>
+
+          <div class="alert alert-info mt-3 mb-0">
+            <strong>Billing Rules</strong><br>
+            • Monthly → billed per month<br>
+            • Yearly → billed once for 12 months<br>
+            • Trial → no billing<br>
+            • Custom → capacity required
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= BILL PREVIEW ================= -->
+      <div class="card card-outline card-info mb-4">
+        <div class="card-header">
+          <h3 class="card-title">Bill Preview</h3>
+        </div>
+
+        <div class="card-body">
+          <div id="bill-preview-empty" class="text-muted">
+            Select a paid package to preview billing.
+          </div>
+
+          <div id="bill-preview-content" style="display:none;">
+            <div class="row">
+              <div class="col-md-6 mb-2">
+                <strong>Package:</strong>
+                <div id="bp-package"></div>
+              </div>
+
+              <div class="col-md-6 mb-2">
+                <strong>Billing Cycle:</strong>
+                <div id="bp-cycle"></div>
+              </div>
+
+              <div class="col-md-6 mb-2">
+                <strong>Members:</strong>
+                <div id="bp-members"></div>
+              </div>
+
+              <div class="col-md-6 mb-2">
+                <strong>Billed Duration:</strong>
+                <div id="bp-duration"></div>
+              </div>
+            </div>
+
+            <hr>
+
+            <h4 class="mb-1">
+              Amount Payable:
+              <span class="text-success">
+                ₹ <span id="bp-amount"></span>
+              </span>
+            </h4>
+
+            <small class="text-muted d-block mt-1">
+              Preview only. Final amount calculated after save.
+            </small>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= ACTIONS ================= -->
+      <div class="card-footer bg-transparent d-flex justify-content-between px-0">
+        <a href="{% url 'adminpanel:church_detail' church.id %}"
+           class="btn btn-outline-secondary">
+          Cancel
+        </a>
+
+        <button type="submit" class="btn btn-warning px-4">
+          Update Church
+        </button>
+      </div>
+
+    </form>
+
+  </div>
+</div>
+
+<!-- ================= JS (UNCHANGED) ================= -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  const PACKAGE_DATA = {{ package_pricing|safe }};
+  const pkgSelect = document.querySelector('select[name="package"]');
+
+  console.log("PACKAGE_DATA:", PACKAGE_DATA);
+  console.log("Package select:", pkgSelect);
+
+  if (!pkgSelect) return;
+
+  function togglePackageFields() {
+    const billingWrapper = document.getElementById("billing-cycle-wrapper");
+    const capacityWrapper = document.getElementById("custom-capacity-wrapper");
+
+    console.log("Selected:", pkgSelect.value);
+    console.log("Resolved pkg:", PACKAGE_DATA[pkgSelect.value]);
+
+    if (!billingWrapper || !capacityWrapper) return;
+
+    billingWrapper.style.display = "none";
+    capacityWrapper.style.display = "none";
+
+    const pkg = PACKAGE_DATA[pkgSelect.value];
+    if (!pkg) return;
+
+    if (!pkg.is_trial) {
+      billingWrapper.style.display = "block";
+    }
+
+    if (pkg.is_custom) {
+      capacityWrapper.style.display = "block";
+    }
+  }
+
+  pkgSelect.addEventListener("change", togglePackageFields);
+  togglePackageFields();
+});
+</script>
+
+
+{% endblock %}

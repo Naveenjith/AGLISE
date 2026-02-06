@@ -1,0 +1,220 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EGLISE Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+   <!-- AdminLTE -->
+  <link rel="stylesheet" href="{% static 'adminlte/dist/css/adminlte.min.css' %}">
+  <!-- DataTables -->
+  <link rel="stylesheet"
+        href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css">
+
+ 
+
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+
+  <!-- Custom Admin Styling -->
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* ===== Header ===== */
+.app-header {
+  background: linear-gradient(180deg, #1f2937, #111827);
+  color: #ffffff;
+}
+
+.app-header .navbar-brand,
+.app-header .navbar-brand small {
+  color: #ffffff !important;
+}
+
+.app-header .text-muted {
+  color: rgba(255,255,255,0.85) !important;
+}
+
+.app-header .btn-outline-danger {
+  color: #ffffff;
+  border-color: rgba(255,255,255,0.5);
+}
+
+.app-header .btn-outline-danger:hover {
+  background-color: rgba(255,255,255,0.15);
+}
+
+.app-header .navbar-brand i {
+  font-size: 1.1rem;
+  opacity: 0.95;
+}
+
+
+    /* ===== Sidebar ===== */
+    .app-sidebar {
+      background: linear-gradient(180deg, #1f2937, #111827);
+    }
+
+    .sidebar-brand {
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .nav-link {
+      border-radius: 8px;
+      padding: 10px 12px;
+      transition: all 0.2s ease-in-out;
+    }
+
+    .nav-link:hover {
+      background-color: rgba(255,255,255,0.08);
+    }
+
+    .nav-link.active {
+      background: linear-gradient(90deg, #3b82f6, #2563eb);
+      color: #fff !important;
+      font-weight: 500;
+    }
+
+    /* ===== Main Content ===== */
+    .app-main {
+      background-color: #f4f6fb;
+      min-height: 100vh;
+    }
+
+    /* ===== Cards ===== */
+    .card {
+      border-radius: 12px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+    }
+
+    .card-header {
+      background-color: #ffffff;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    /* ===== Buttons ===== */
+    .btn {
+      border-radius: 8px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(90deg, #3b82f6, #2563eb);
+      border: none;
+    }
+
+    .btn-outline-secondary:hover {
+      background-color: #e5e7eb;
+    }
+
+    /* ===== Footer ===== */
+    .app-footer {
+      font-size: 13px;
+      background-color: #ffffff;
+    }
+  </style>
+</head>
+
+<body class="layout-fixed sidebar-expand-lg">
+<div class="app-wrapper">
+
+  <!-- ================= Header ================= -->
+  <nav class="app-header navbar navbar-expand border-bottom shadow-sm">
+    <div class="container-fluid">
+
+    <!-- Left -->
+<a class="navbar-brand d-flex align-items-center gap-2"
+   href="{% url 'adminpanel:dashboard' %}">
+  <i class="fas fa-home"></i>
+  <span class="fw-semibold">Welcome Admin</span>
+</a>
+
+
+
+      <!-- Right -->
+      <div class="d-flex align-items-center ms-auto gap-3">
+        <span class="text-muted small">
+          {{ request.user.username }}
+        </span>
+
+        <a href="{% url 'adminpanel:logout' %}"
+           class="btn btn-sm btn-outline-danger">
+          Logout
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ================= Sidebar ================= -->
+  <aside class="app-sidebar shadow">
+    <div class="sidebar-brand text-center py-3">
+      <span class="brand-text fw-semibold text-white">
+        EGLISE
+      </span>
+    </div>
+
+    <div class="sidebar-wrapper px-2">
+      <nav>
+        <ul class="nav nav-pills flex-column gap-1">
+
+          <li class="nav-item">
+            <a href="{% url 'adminpanel:dashboard' %}"
+               class="nav-link text-white {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+              📊 Dashboard
+            </a>
+          </li>
+
+          <li class="nav-item">
+            <a href="{% url 'adminpanel:church_list' %}"
+               class="nav-link text-white {% if 'church' in request.resolver_match.url_name %}active{% endif %}">
+              ⛪ Churches
+            </a>
+          </li>
+
+          <li class="nav-item">
+            <a href="{% url 'adminpanel:package_list' %}"
+               class="nav-link text-white {% if 'package' in request.resolver_match.url_name %}active{% endif %}">
+              📦 Packages
+            </a>
+          </li>
+
+          <li class="nav-item">
+            <a href="{% url 'adminpanel:upgrade_request_list' %}"
+               class="nav-link text-white {% if 'upgrade' in request.resolver_match.url_name %}active{% endif %}">
+              ⬆️ Upgrade Requests
+            </a>
+          </li>
+
+        </ul>
+      </nav>
+    </div>
+  </aside>
+
+  <!-- ================= Main Content ================= -->
+  <main class="app-main">
+    <div class="container-fluid py-4">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <!-- ================= Footer ================= -->
+  <footer class="app-footer text-center text-muted py-2 border-top">
+    © {{ now|date:"Y" }} EGLISE · All rights reserved
+  </footer>
+
+</div>
+
+<!-- Scripts -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+
+{% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,174 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row">
+  <div class="col-12">
+
+    <div class="card shadow-sm">
+
+      <!-- HEADER -->
+      <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">Churches</h4>
+
+        <a href="{% url 'adminpanel:church_create' %}"
+           class="btn btn-sm btn-light">
+          <i class="fas fa-plus me-1"></i> Add Church
+        </a>
+      </div>
+
+      <!-- BODY -->
+      <div class="card-body">
+
+        <div class="table-responsive">
+          <table id="churchTable"
+                 class="table table-hover align-middle w-100">
+
+            <thead class="table-light">
+              <tr>
+                <th>Name</th>
+                <th>City</th>
+                <th>Diocese</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Package</th>
+                <th>Payment</th>
+                <th>Expires</th>
+                <th>Status</th>
+                <th class="text-center">Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {% for c in churches %}
+              <tr>
+
+                <td class="fw-semibold">
+                  {{ c.name }}
+                </td>
+
+                <td>{{ c.city }}</td>
+
+                <td>{{ c.diocese_name }}</td>
+
+                <td class="text-muted small">
+                  {{ c.email }}
+                </td>
+
+                <td class="text-muted small">
+                  {{ c.phone_number }}
+                </td>
+
+                <!-- PACKAGE -->
+                <td>
+                  {% if c.churchsubscription %}
+                    <span class="badge bg-info">
+                      {{ c.churchsubscription.package.name }}
+                    </span>
+                  {% else %}
+                    <span class="badge bg-secondary">None</span>
+                  {% endif %}
+                </td>
+
+                <!-- PAYMENT -->
+                <td>
+                  {% if c.churchsubscription %}
+                    {% if c.churchsubscription.payment_status == "PAID" %}
+                      <span class="badge bg-success">Paid</span>
+                    {% else %}
+                      <span class="badge bg-warning text-dark">Unpaid</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+
+                <!-- EXPIRY -->
+                <td data-order="{{ c.churchsubscription.end_date|default:'' }}">
+                  {% if c.churchsubscription and c.churchsubscription.payment_status == "PAID" %}
+                    {% if c.churchsubscription.expires_in_days <= 0 %}
+                      <span class="badge bg-danger">Expired</span><br>
+                      <small class="text-muted">
+                        {{ c.churchsubscription.end_date }}
+                      </small>
+                    {% elif c.churchsubscription.expires_in_days <= 7 %}
+                      <span class="badge bg-warning text-dark">
+                        Expiring Soon
+                      </span><br>
+                      <small class="text-muted">
+                        {{ c.churchsubscription.end_date }}
+                      </small>
+                    {% else %}
+                      <span class="text-muted">
+                        {{ c.churchsubscription.end_date }}
+                      </span>
+                    {% endif %}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+
+                <!-- STATUS -->
+                <td>
+                  {% if c.is_active %}
+                    <span class="badge bg-success">Active</span>
+                  {% else %}
+                    <span class="badge bg-danger">Inactive</span>
+                  {% endif %}
+                </td>
+
+                <!-- ACTIONS -->
+                <td class="text-center">
+                  <div class="btn-group btn-group-sm" role="group">
+                    <a href="{% url 'adminpanel:church_detail' c.id %}"
+                       class="btn btn-outline-primary">
+                      View
+                    </a>
+
+                    <a href="{% url 'adminpanel:church_edit' c.id %}"
+                       class="btn btn-outline-warning">
+                      Edit
+                    </a>
+
+                    {% if c.is_active %}
+                      <a href="{% url 'adminpanel:church_suspend' c.id %}"
+                         class="btn btn-outline-secondary"
+                         onclick="return confirm('Suspend this church?');">
+                        Suspend
+                      </a>
+                    {% endif %}
+                  </div>
+                </td>
+
+              </tr>
+              {% endfor %}
+            </tbody>
+
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+  $(function () {
+    $('#churchTable').DataTable({
+      pageLength: 25,
+      responsive: true,
+      order: [[7, 'asc']], // Expires column
+      columnDefs: [
+        { orderable: false, searchable: false, targets: 9 }
+      ],
+      dom:
+        "<'row mb-2'<'col-md-6'l><'col-md-6 text-end'f>>" +
+        "<'row'<'col-12'tr>>" +
+        "<'row mt-2'<'col-md-5'i><'col-md-7'p>>"
+    });
+  });
+</script>
+{% endblock %}
+
+{% endblock %}

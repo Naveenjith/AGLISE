@@ -1,0 +1,204 @@
+{% extends "adminpanel/base.html" %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-xl-10 col-lg-11 col-md-12">
+
+    <div class="card card-outline card-primary">
+      <div class="card-header">
+        <h3 class="card-title">Create Church</h3>
+      </div>
+
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <div class="card-body">
+
+          <!-- ================= BASIC DETAILS ================= -->
+          <div class="mb-4">
+            <h5 class="text-primary mb-3">Basic Information</h5>
+
+            <div class="row">
+              <div class="col-md-4 mb-3">
+                <label class="form-label">Church Name *</label>
+                {{ church_form.name }}
+              </div>
+
+              <div class="col-md-4 mb-3">
+                <label class="form-label">City *</label>
+                {{ church_form.city }}
+              </div>
+
+              <div class="col-md-4 mb-3">
+                <label class="form-label">Diocese *</label>
+                {{ church_form.diocese_name }}
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Address *</label>
+                {{ church_form.address }}
+              </div>
+            </div>
+          </div>
+
+          <!-- ================= CONTACT DETAILS ================= -->
+          <div class="mb-4">
+            <h5 class="text-primary mb-3">Contact Details</h5>
+
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Email *</label>
+                {{ church_form.email }}
+
+                {% if church_form.email.errors %}
+                  <div class="text-danger small mt-1">
+                    {{ church_form.email.errors.0 }}
+                  </div>
+                {% endif %}
+              </div>
+
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Phone Number *</label>
+                {{ church_form.phone_number }}
+              </div>
+            </div>
+          </div>
+
+          <!-- ================= CLERGY ================= -->
+          <div class="mb-4">
+            <h5 class="text-primary mb-3">Clergy</h5>
+
+            <div class="row">
+              <div class="col-md-3 mb-3">
+                <label class="form-label">Vicar *</label>
+                {{ church_form.vicar }}
+              </div>
+
+              <div class="col-md-3 mb-3">
+                <label class="form-label">Asst. Vicar 1</label>
+                {{ church_form.asst_vicar1 }}
+              </div>
+
+              <div class="col-md-3 mb-3">
+                <label class="form-label">Asst. Vicar 2</label>
+                {{ church_form.asst_vicar2 }}
+              </div>
+
+              <div class="col-md-3 mb-3">
+                <label class="form-label">Asst. Vicar 3</label>
+                {{ church_form.asst_vicar3 }}
+              </div>
+            </div>
+          </div>
+
+          <!-- ================= LOGO ================= -->
+          <div class="mb-4">
+            <h5 class="text-primary mb-3">Church Logo</h5>
+
+            <div class="row">
+              <div class="col-md-6">
+                {{ church_form.logo }}
+                <small class="text-muted d-block mt-1">
+                  Optional. Recommended square image.
+                </small>
+              </div>
+            </div>
+          </div>
+
+          <hr>
+
+          <!-- ================= PACKAGE ================= -->
+          <div class="mb-3">
+            <h5 class="text-primary mb-3">Package (Optional)</h5>
+
+            <div class="row">
+              <div class="col-md-4 mb-3">
+                <label class="form-label">Package</label>
+                {{ sub_form.package }}
+              </div>
+
+              <div class="col-md-4 mb-3">
+                <label class="form-label">Billing Cycle</label>
+                {{ sub_form.billing_cycle }}
+              </div>
+
+              <!-- 🔥 CUSTOM MEMBER CAPACITY (ONLY FOR CUSTOM PACKAGE) -->
+              <div id="custom-capacity-wrapper"
+                   class="col-md-4 mb-3"
+                   style="display:none;">
+                <label class="form-label">
+                  Member Capacity <span class="text-danger">*</span>
+                </label>
+                {{ sub_form.custom_capacity }}
+                <small class="text-muted">
+                  Required only for custom package
+                </small>
+
+                {% if sub_form.custom_capacity.errors %}
+                  <div class="text-danger small mt-1">
+                    {{ sub_form.custom_capacity.errors.0 }}
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="alert alert-info py-2">
+              <small>
+                <b>Trial package:</b> Activated immediately with limited members.<br>
+                <b>Monthly billing:</b> Charged every month (1 month at a time).<br>
+                <b>Yearly billing:</b> Charged once for 12 months.<br>
+                <b>Paid packages:</b> Church activates only after payment is marked <b>PAID</b>.
+              </small>
+            </div>
+
+            <small class="text-muted">
+              If no package is selected, the church remains inactive until a package is purchased.
+            </small>
+          </div>
+
+        </div>
+
+        <!-- ================= FOOTER ================= -->
+        <div class="card-footer d-flex justify-content-between">
+          <a href="{% url 'adminpanel:church_list' %}" class="btn btn-outline-secondary">
+            Cancel
+          </a>
+
+          <button type="submit" class="btn btn-primary px-4">
+            Create Church
+          </button>
+        </div>
+
+      </form>
+
+    </div>
+  </div>
+</div>
+
+<!-- ================= JS: CUSTOM PACKAGE TOGGLE ================= -->
+<script>
+ const PACKAGE_DATA = JSON.parse('{{ package_pricing|escapejs }}');
+
+
+  function toggleCustomCapacity() {
+    const pkgSelect = document.querySelector('select[name="package"]');
+    const wrapper = document.getElementById("custom-capacity-wrapper");
+
+    if (!pkgSelect || !wrapper) return;
+
+    const pkg = PACKAGE_DATA[pkgSelect.value];
+    wrapper.style.display = (pkg && pkg.is_custom) ? "block" : "none";
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const pkgSelect = document.querySelector('select[name="package"]');
+    if (pkgSelect) {
+      pkgSelect.addEventListener("change", toggleCustomCapacity);
+      toggleCustomCapacity(); // initial load
+    }
+  });
+</script>
+
+{% endblock %}
