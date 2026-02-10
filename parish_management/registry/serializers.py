@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Bill, Church, Grade, Relationship, UpgradeRequest, Ward, Family, Member
+from .models import Baptism, Bill, Church, Grade, Relationship, UpgradeRequest, Ward, Family, Member
 from .services import can_add_member
 from rest_framework import serializers
 from .models import Package
@@ -72,7 +72,15 @@ class WardSerializer(serializers.ModelSerializer):
 class FamilySerializer(serializers.ModelSerializer):
     class Meta:
         model = Family
-        fields = "__all__"
+        fields =  [
+            "id",
+            "church",
+            "ward",
+            "family_name",
+            "history",
+            "origin",
+            "family_image",
+        ]
         read_only_fields = ("church",)
 
     def create(self, validated_data):
@@ -179,7 +187,7 @@ class FamilyMiniSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Family
-        fields = ["id", "family_name", "house_name", "ward"]
+        fields = ["id", "family_name","ward"]
 
 
 class ChurchMiniSerializer(serializers.ModelSerializer):
@@ -303,3 +311,178 @@ class UpgradeRequestSerializer(serializers.ModelSerializer):
             )
 
         return attrs
+    
+#Baptism
+class BaptismSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Baptism
+        fields = "__all__"
+
+    def validate(self, data):
+        instance = self.instance
+
+        category = data.get(
+            "baptism_category",
+            instance.baptism_category if instance else None
+        )
+
+        family = data.get(
+            "family",
+            instance.family if instance else None
+        )
+
+        main_member = data.get(
+            "main_member",
+            instance.main_member if instance else None
+        )
+
+        relation = data.get(
+            "relation_with_main_member",
+            instance.relation_with_main_member if instance else None
+        )
+
+        if category == "PARISH":
+            if not family:
+                raise serializers.ValidationError({
+                    "family": "Family is required for parish baptism."
+                })
+            if not main_member:
+                raise serializers.ValidationError({
+                    "main_member": "Main member is required for parish baptism."
+                })
+            if not relation:
+                raise serializers.ValidationError({
+                    "relation_with_main_member": "Relationship is required for parish baptism."
+                })
+
+        if category == "OTHER":
+            if family or main_member or relation:
+                raise serializers.ValidationError(
+                    "Family, main member, and relationship must be empty for outsider baptism."
+                )
+
+        return data
+
+
+class FamilyMemberSerializer(serializers.ModelSerializer):
+    relationship = serializers.SerializerMethodField()
+    grade_name = serializers.SerializerMethodField()
+    family_name = serializers.SerializerMethodField()
+    house_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Member
+        fields = [
+            "id",
+            "name",
+            "gender",
+            "dob",
+            "mobile_no",
+            "phone_no",
+            "address",
+            "profession",
+            "marital_status",
+            "blood_group",
+            "is_family_head",
+            "relationship",
+            "grade_name",
+            "family_name",
+            "house_name",
+        ]
+
+    def get_relationship(self, obj):
+        if obj.is_family_head:
+            return None
+        return obj.relationship.name if obj.relationship else None
+
+    def get_grade_name(self, obj):
+        return obj.grade.name if obj.grade else None
+
+    def get_family_name(self, obj):
+        return obj.family.family_name if obj.family else None
+
+    def get_house_name(self, obj):
+        return obj.family.house_name if obj.family else None
+
+
+
+#mobile Directory apis
+class WardWithFamilyCountSerializer(serializers.ModelSerializer):
+    family_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Ward
+        fields = ["id", "ward_name","place", "family_count"]
+
+
+class MobileFamilyListSerializer(serializers.ModelSerializer):
+    member_count = serializers.IntegerField(read_only=True)
+    head_name = serializers.SerializerMethodField()
+    family_image = serializers.SerializerMethodField()
+    class Meta:
+        model = Family
+        fields = [
+            "id",
+            "family_name",
+            "family_image",
+            "head_name",
+            "member_count",
+        ]
+
+    def get_head_name(self, obj):
+        head = obj.members.filter(
+            is_family_head=True,
+            is_active=True,
+            expired=False
+        ).first()
+        return head.name if head else None
+    def get_family_image(self, obj):
+        request = self.context.get("request")
+        if obj.family_image and request:
+            return request.build_absolute_uri(obj.family_image.url)
+        return None
+    
+class MobileFamilyMemberSerializer(serializers.ModelSerializer):
+    relationship_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Member
+        fields = [
+            "id",
+            "name",
+            "gender",
+            "dob",
+            "age",
+            "mobile_no",
+            "is_family_head",
+            "relationship_name",
+        ]
+
+    def get_relationship_name(self, obj):
+        if obj.is_family_head:
+            return "HEAD"
+        return obj.relationship.name if obj.relationship else None
+
+class MobileFamilyDetailSerializer(serializers.ModelSerializer):
+    members = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Family
+        fields = [
+            "id",
+            "family_name",
+            "house_name",
+            "family_image",
+            "members",
+        ]
+
+    def get_members(self, obj):
+        members = obj.members.filter(
+            is_active=True,
+            expired=False
+        ).order_by("-is_family_head", "name")
+
+        return MobileFamilyMemberSerializer(
+            members,
+            many=True
+        ).data

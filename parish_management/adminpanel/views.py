@@ -10,7 +10,7 @@ from adminpanel.forms import PackageForm, ChurchForm, ChurchSubscriptionForm
 from registry.models import Bill, Church, Package, ChurchSubscription, UpgradeRequest
 from accounts.utils import generate_password
 from django.contrib.auth import logout
-from datetime import date, timedelta, timezone
+from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 from registry.services import calculate_package_pricing, calculate_prorated_upgrade_amount,get_next_subscription_action
 from django.utils import timezone
@@ -21,6 +21,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.timezone import now
 from django.contrib import messages
+from django.utils import timezone
 
 User = get_user_model()
 

@@ -1,9 +1,11 @@
 from django.db import models
-from datetime import date, timezone
+from datetime import date
 from datetime import timedelta
 from django.forms import ValidationError
-from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
+from django.utils import timezone
+from django.utils.timezone import now
+from accounts.utils import create_family_head_user
 
 class Church(models.Model):
     name = models.CharField(max_length=200)
@@ -189,7 +191,7 @@ class Family(models.Model):
     )
 
     family_name = models.CharField(max_length=150)
-    house_name = models.CharField(max_length=150)
+    house_name = models.CharField(max_length=150,blank=True,null=True)
     history = models.TextField(blank=True)
     origin = models.CharField(max_length=150, blank=True)
     family_image = models.ImageField(
@@ -244,7 +246,11 @@ class Member(models.Model):
         max_length=10,
         choices=(("MALE", "Male"), ("FEMALE", "Female"))
     )
-
+    email = models.EmailField(
+        unique=True,
+        null=True,
+        blank=True
+    )
     marital_status = models.CharField(
         max_length=20,
         choices=(
@@ -278,7 +284,9 @@ class Member(models.Model):
 
     relationship = models.ForeignKey(
         Relationship,
-        on_delete=models.PROTECT
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True
     )
 
     grade = models.ForeignKey(
@@ -295,13 +303,21 @@ class Member(models.Model):
     is_active = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
+    # Track previous head state (important)
+        was_head = None
+        if self.pk:
+            was_head = Member.objects.filter(
+                pk=self.pk
+            ).values_list("is_family_head", flat=True).first()
+
+    # 🔥 Enforce single family head
         if self.is_family_head:
-            # 🔥 Remove head flag from others
             Member.objects.filter(
-                family=self.family,
-                is_family_head=True
+            family=self.family,
+            is_family_head=True
             ).exclude(pk=self.pk).update(is_family_head=False)
 
+    # 🔢 Age calculation
         if self.dob:
             today = date.today()
             self.age = today.year - self.dob.year - (
@@ -309,6 +325,18 @@ class Member(models.Model):
             )
 
         super().save(*args, **kwargs)
+
+    # 👤 AUTO-CREATE USER FOR FAMILY HEAD
+        if self.is_family_head and self.is_active:
+        # Only when becoming head (not every save)
+            if was_head is False or was_head is None:
+                if not self.email:
+                    raise ValidationError(
+                    "Family head must have an email address."
+                    )
+
+                create_family_head_user(self)
+
 
     def __str__(self):
         return self.name
@@ -444,3 +472,85 @@ class UpgradeRequest(models.Model):
 
     def __str__(self):
         return f"{self.church.name} → {self.requested_package.name}"
+
+
+#Baptism
+class Baptism(models.Model):
+    BAPTISM_CATEGORY_CHOICES = (
+        ("PARISH", "Parish (Church Member)"),
+        ("OTHER", "Other (Outsider)"),
+    )
+
+    church = models.ForeignKey(
+        Church,
+        on_delete=models.CASCADE,
+        related_name="baptisms"
+    )
+
+    baptism_category = models.CharField(
+        max_length=10,
+        choices=BAPTISM_CATEGORY_CHOICES
+    )
+
+    # ---------- COMMON FIELDS ----------
+    date_of_baptism = models.DateField()
+    register_number = models.CharField(max_length=50, unique=True)
+    place_of_birth = models.CharField(max_length=150)
+
+    name = models.CharField(max_length=150)
+    baptismal_name = models.CharField(max_length=150)
+
+    gender = models.CharField(
+        max_length=10,
+        choices=(("MALE", "Male"), ("FEMALE", "Female"))
+    )
+
+    dob = models.DateField(null=True, blank=True)
+    address = models.TextField()
+
+    parish_of_baptism = models.CharField(max_length=150)
+
+    god_father = models.CharField(max_length=150)
+    god_mother = models.CharField(max_length=150)
+
+    father_name = models.CharField(max_length=150)
+    mother_name = models.CharField(max_length=150)
+
+    remarks = models.TextField(blank=True)
+
+    # ---------- PARISH ONLY ----------
+    family = models.ForeignKey(
+        Family,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True
+    )
+
+    main_member = models.ForeignKey(
+        Member,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="as_main_member_in_baptisms"
+    )
+
+    relation_with_main_member = models.ForeignKey(
+        Relationship,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="baptism_record"
+        )
+    
+    member = models.OneToOneField(
+        Member,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="baptism"
+        )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.register_number})"

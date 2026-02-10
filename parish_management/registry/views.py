@@ -7,8 +7,8 @@ from rest_framework.generics import (
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsChurchAuthenticated,IsChurchUser, IsMemberUser
 from registry.services import calculate_new_bill_amount, calculate_prorated_upgrade_amount, get_next_subscription_action
-from .models import Bill, Church, Grade, Relationship, UpgradeRequest, Ward, Family, Member,Package
-from .serializers import BillDetailSerializer, BillListSerializer, ChurchListSerializer, GradeSerializer, MemberProfileSerializer, RelationshipSerializer, SubscriptionExpirySerializer, UpgradeSerializer, WardSerializer, FamilySerializer, MemberSerializer,PackageSerializer
+from .models import Baptism, Bill, Church, Grade, Relationship, UpgradeRequest, Ward, Family, Member,Package
+from .serializers import BaptismSerializer, BillDetailSerializer, BillListSerializer, ChurchListSerializer, FamilyMemberSerializer, GradeSerializer, MemberProfileSerializer, MobileFamilyDetailSerializer, MobileFamilyListSerializer, RelationshipSerializer, SubscriptionExpirySerializer, UpgradeSerializer, WardSerializer, FamilySerializer, MemberSerializer,PackageSerializer, WardWithFamilyCountSerializer
 from rest_framework.generics import ListAPIView
 from .models import ChurchSubscription
 from .serializers import SubscribeSerializer,UpgradeRequestSerializer
@@ -16,19 +16,30 @@ from rest_framework.views import APIView
 from django.db import transaction
 from rest_framework.response import Response
 from rest_framework import status
-
+from rest_framework.exceptions import ValidationError
+from django.db.models import Count,Sum
 
 class ChurchContextMixin:
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["church"] = self.request.user.church
+        # Only add church to context if the user has one
+        if hasattr(self.request.user, 'church'):
+            context["church"] = self.request.user.church
         return context
 
     def get_queryset(self):
-        # Enforce church-level isolation
-        return self.model.objects.filter(
-            church=self.request.user.church
-        )
+        # 1. Start with all objects
+        queryset = self.model.objects.all()
+        
+        # 2. Check if the model has a field named 'church'
+        has_church_field = any(f.name == 'church' for f in self.model._meta.get_fields())
+        
+        # 3. Only filter if the field exists
+        if has_church_field:
+            return queryset.filter(church=self.request.user.church)
+        
+        # 4. Otherwise, return all (for global models like Grade/Relationship)
+        return queryset
 
 class ChurchList(ListAPIView):
     permission_classes=[IsAuthenticated]
@@ -54,22 +65,22 @@ class FamilyListCreateAPIView(ChurchContextMixin,ListCreateAPIView):
     permission_classes = [IsAuthenticated, IsChurchUser]
     
 class RelationshipListCreateAPIView(ChurchContextMixin,ListCreateAPIView):
-    queryset = Relationship.objects.all()
+    model = Relationship
     serializer_class = RelationshipSerializer
     permission_classes = [IsAuthenticated, IsChurchUser]
 
 class RelationshipdetailView(ChurchContextMixin,RetrieveUpdateDestroyAPIView):
     permission_classes=[IsAuthenticated,IsChurchUser]
-    queryset=Relationship
+    model=Relationship
     serializer_class=RelationshipSerializer
 
 class GradeListCreateview(ChurchContextMixin,ListCreateAPIView):
-    queryset=Grade
+    model=Grade
     serializer_class=GradeSerializer
     permission_classes=[IsAuthenticated,IsChurchUser]
 
 class GradeDetailview(ChurchContextMixin,RetrieveUpdateDestroyAPIView):
-    queryset=Grade
+    model=Grade
     serializer_class=GradeSerializer
     permission_classes=[IsAuthenticated,IsChurchUser]
 
@@ -627,4 +638,344 @@ class ChangeFamilyHeadAPIView(APIView):
         return Response(
             {"detail": "Family head updated successfully"},
             status=200
+        )   
+#baptism
+class BaptismAPIView(APIView):
+    permission_classes = [IsChurchUser]
+
+    def get(self, request):
+        """
+        List baptisms with optional category filter
+        ?category=PARISH | OTHER
+        """
+        category = request.query_params.get("category")
+
+        baptisms = Baptism.objects.filter(
+            church=request.user.church
         )
+
+        if category:
+            category = category.upper()
+            if category not in ["PARISH", "OTHER"]:
+                return Response(
+                    {"detail": "Invalid category. Use PARISH or OTHER."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            baptisms = baptisms.filter(baptism_category=category)
+
+        baptisms = baptisms.select_related(
+            "family",
+            "main_member",
+            "relation_with_main_member",
+            "member"
+        ).order_by("-created_at")
+
+        serializer = BaptismSerializer(baptisms, many=True)
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
+
+
+
+    def post(self, request):
+        data = request.data.copy()
+        data["church"] = request.user.church.id
+
+        serializer = BaptismSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            baptism = serializer.save()
+
+            if (
+                baptism.baptism_category == "PARISH"
+                and baptism.member is None
+            ):
+                member = Member.objects.create(
+                    church=baptism.church,
+                    family=baptism.family,
+                    name=baptism.name,
+                    baptismal_name=baptism.baptismal_name,
+                    gender=baptism.gender,
+                    dob=baptism.dob,
+                    address=baptism.address,
+                    relationship=baptism.relation_with_main_member,
+                    father_name=baptism.father_name,
+                    mother_name=baptism.mother_name,
+                    date_of_baptism=baptism.date_of_baptism,
+                    parish_of_baptism=baptism.parish_of_baptism,
+                    is_family_head=False,
+                    is_active=True
+                )
+
+                baptism.member = member
+                baptism.save(update_fields=["member"])
+
+        return Response(
+            BaptismSerializer(baptism).data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+
+class BaptismDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, request, pk):
+        """
+        Ensure baptism belongs to the logged-in user's church
+        """
+        return get_object_or_404(
+            Baptism,
+            pk=pk,
+            church=request.user.church
+        )
+
+    # -------------------------
+    # INTERNAL SAFETY CHECK
+    # -------------------------
+    def _block_if_member_exists(self, baptism, data):
+        """
+        Prevent dangerous updates once a Member is created
+        """
+        if baptism.member:
+            blocked_fields = {
+                "baptism_category",
+                "family",
+                "main_member",
+                "relation_with_main_member",
+            }
+
+            attempted = blocked_fields.intersection(data.keys())
+            if attempted:
+                raise ValidationError(
+                    f"Cannot modify {', '.join(attempted)} after member creation."
+                )
+
+    # -------------------------
+    # FULL UPDATE
+    # -------------------------
+    def put(self, request, pk):
+        baptism = self.get_object(request, pk)
+
+        data = request.data.copy()
+        data["church"] = request.user.church.id
+
+        self._block_if_member_exists(baptism, data)
+
+        serializer = BaptismSerializer(
+            baptism,
+            data=data
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
+
+    # -------------------------
+    # PARTIAL UPDATE
+    # -------------------------
+    def patch(self, request, pk):
+        baptism = self.get_object(request, pk)
+
+        data = request.data.copy()
+        data["church"] = request.user.church.id
+
+        self._block_if_member_exists(baptism, data)
+
+        serializer = BaptismSerializer(
+            baptism,
+            data=data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
+
+    # -------------------------
+    # DELETE
+    # -------------------------
+    def delete(self, request, pk):
+        baptism = self.get_object(request, pk)
+
+        if baptism.member:
+            raise ValidationError(
+                "Cannot delete baptism record after member creation."
+            )
+
+        baptism.delete()
+        return Response(
+            status=status.HTTP_204_NO_CONTENT
+        )
+
+
+class BaptismCertificateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        baptism = get_object_or_404(
+            Baptism,
+            pk=pk,
+            church=request.user.church
+        )
+
+        data = {
+            "certificate_type": (
+                "PARISH" if baptism.baptism_category == "PARISH" else "OTHER"
+            ),
+
+            # -------------------------
+            # CHURCH INFO
+            # -------------------------
+            "church": {
+                "name": baptism.church.name,
+                "address": baptism.church.address,
+            },
+
+            # -------------------------
+            # BAPTISM DETAILS
+            # -------------------------
+            "register_number": baptism.register_number,
+            "date_of_baptism": baptism.date_of_baptism,
+            "parish_of_baptism": baptism.parish_of_baptism,
+
+            # -------------------------
+            # PERSON DETAILS
+            # -------------------------
+            "name": baptism.name,
+            "baptismal_name": baptism.baptismal_name,
+            "gender": baptism.gender,
+            "date_of_birth": baptism.dob,
+            "place_of_birth": baptism.place_of_birth,
+            "address": baptism.address,
+
+            # -------------------------
+            # PARENTS
+            # -------------------------
+            "father_name": baptism.father_name,
+            "mother_name": baptism.mother_name,
+
+            # -------------------------
+            # GODPARENTS
+            # -------------------------
+            "god_father": baptism.god_father,
+            "god_mother": baptism.god_mother,
+
+            # -------------------------
+            # PARISH MEMBER DETAILS
+            # -------------------------
+            "parish_member_details": None,
+        }
+
+        if baptism.baptism_category == "PARISH":
+            data["parish_member_details"] = {
+                "family_name": baptism.family.family_name,
+                "house_name": baptism.family.house_name,
+                "main_member_name": (
+                    baptism.main_member.name if baptism.main_member else None
+                ),
+                "relationship": (
+                    baptism.relation_with_main_member.name
+                    if baptism.relation_with_main_member
+                    else None
+                ),
+                "member_id": baptism.member.id if baptism.member else None,
+            }
+
+        return Response(data, status=status.HTTP_200_OK)
+
+
+
+class FamilyMembersAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, family_id):
+        family = get_object_or_404(
+            Family,
+            id=family_id,
+            church=request.user.church
+        )
+
+        members = Member.objects.filter(
+            family=family
+        ).order_by("-is_family_head", "name")  # ✅ correct field
+
+        serializer = FamilyMemberSerializer(members, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+#mobile directory apis
+class WardListWithFamilyCountAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        wards = (
+            Ward.objects
+            .filter(church=request.user.church)
+            .annotate(family_count=Count("families"))
+            .order_by("ward_name")
+        )
+
+        serializer = WardWithFamilyCountSerializer(wards, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+class WardFamiliesMobileAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, ward_id):
+        # Ensure ward belongs to church
+        get_object_or_404(
+            Ward,
+            id=ward_id,
+            church=request.user.church
+        )
+
+        families_qs = (
+            Family.objects
+            .filter(
+                ward_id=ward_id,
+                church=request.user.church
+            )
+            .annotate(member_count=Count("members"))
+            .order_by("family_name")
+        )
+
+        total_families = families_qs.count()
+        total_members = families_qs.aggregate(
+            total=Sum("member_count")
+        )["total"] or 0
+
+        serializer = MobileFamilyListSerializer(
+            families_qs,
+            many=True,
+            context={"request": request}
+        )
+
+        return Response(
+            {
+                "total_families": total_families,
+                "total_members": total_members,
+                "families": serializer.data,
+            }
+        )
+    
+class FamilyDetailMobileAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, family_id):
+        family = get_object_or_404(
+            Family,
+            id=family_id,
+            church=request.user.church
+        )
+
+        serializer = MobileFamilyDetailSerializer(family)
+        return Response(serializer.data, status=status.HTTP_200_OK)
