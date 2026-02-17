@@ -6,7 +6,9 @@ from .views import (
     ChurchBillDetailAPIView,
     ChurchBillListAPIView,
     ChurchDashboardAPIView,
+    FamilyBaptismsMobileAPIView,
     FamilyDetailMobileAPIView,
+    FamilyHeadCreateAPIView,
     FamilyMembersAPIView,
     MemberProfileAPIView,
     PackageListAPIView,
@@ -32,7 +34,7 @@ urlpatterns = [
     path("wards/<int:pk>/", WardDetailAPIView.as_view()),
     path("mobile/wards/", WardListWithFamilyCountAPIView.as_view()),
     path("mobile/<ward_id>/families/", WardFamiliesMobileAPIView.as_view()),
-    path("mobile/families/<int:family_id>/",FamilyDetailMobileAPIView.as_view(),name="mobile-family-detail"),
+    path("mobile/families/<int:family_id>/<str:house_name>/",FamilyDetailMobileAPIView.as_view(),name="mobile-family-detail"),
 
     #Grade
     path("grade/",GradeListCreateview.as_view(),name='grade_create'),
@@ -46,11 +48,12 @@ urlpatterns = [
     path("families/<int:pk>/", FamilyDetailAPIView.as_view()),
 
     # Members
+    path("members/create-head/",FamilyHeadCreateAPIView.as_view(),name="create-family-head"),
     path("members/", MemberListCreateAPIView.as_view()),
     path("members/<int:pk>/", MemberDetailAPIView.as_view()),
     path("member/profile/", MemberProfileAPIView.as_view()),
     #member list by families
-    path("families/<int:family_id>/members/",FamilyMembersAPIView.as_view(),name="family-members"),
+    path("families/<int:family_id>/<str:house_name>/members/",FamilyMembersAPIView.as_view(),name="family-members"),
 
     #Packages
     path("packages/", PackageListAPIView.as_view()),
@@ -69,5 +72,6 @@ urlpatterns = [
     #baptism
     path("baptisms/",BaptismAPIView.as_view(),name="baptism-list-create"),
     path("baptisms/<int:pk>/",BaptismDetailAPIView.as_view(),name="baptism-detail"),
+    path("mobile/families/baptisms/",FamilyBaptismsMobileAPIView.as_view(),name="mobile-family-baptisms"),
     path("baptisms/<int:pk>/certificate/",BaptismCertificateAPIView.as_view(),name="baptism-certificate"),
 ]

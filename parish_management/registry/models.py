@@ -173,9 +173,16 @@ class Ward(models.Model):
     ward_name = models.CharField(max_length=100)
     ward_number = models.PositiveIntegerField()
     place = models.CharField(max_length=150)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("church", "ward_number")
+        ordering = ["ward_number"]
 
     def __str__(self):
         return f"{self.ward_name} ({self.church.name})"
+
 
 
 class Family(models.Model):
@@ -184,21 +191,10 @@ class Family(models.Model):
         on_delete=models.CASCADE,
         related_name="families"
     )
-    ward = models.ForeignKey(
-        Ward,
-        on_delete=models.PROTECT,
-        related_name="families"
-    )
 
     family_name = models.CharField(max_length=150)
-    house_name = models.CharField(max_length=150,blank=True,null=True)
     history = models.TextField(blank=True)
     origin = models.CharField(max_length=150, blank=True)
-    family_image = models.ImageField(
-        upload_to="family_images/",
-        null=True,
-        blank=True
-    )
     def get_active_head(self):
         return self.members.filter(
             is_family_head=True,
@@ -211,17 +207,45 @@ class Family(models.Model):
 
 
 class Relationship(models.Model):
-    name = models.CharField(max_length=50, unique=True)
+    church = models.ForeignKey(
+        Church,
+        on_delete=models.PROTECT,
+        related_name="relationships"
+    )
+
+    name = models.CharField(max_length=50)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("church", "name")
+        ordering = ["name"]
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.church.name})"
+
 
 
 class Grade(models.Model):
-    name = models.CharField(max_length=50, unique=True)
+    church = models.ForeignKey(
+        Church,
+        on_delete=models.PROTECT,
+        related_name="grades"
+    )
+
+    name = models.CharField(max_length=50)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("church", "name")
+        ordering = ["name"]
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.church.name})"
+
 
 
 
@@ -259,13 +283,14 @@ class Member(models.Model):
             ("WIDOWED", "Widowed"),
         )
     )
+    house_name = models.CharField(max_length=150)
 
     spouse_name = models.CharField(max_length=150, blank=True)
 
-    dob = models.DateField()
+    dob = models.DateField(null=True, blank=True)
     age = models.PositiveIntegerField(editable=False)
 
-    mobile_no = models.CharField(max_length=15)
+    mobile_no = models.CharField(max_length=15,blank=True)
     phone_no = models.CharField(max_length=15, blank=True)
 
     blood_group = models.CharField(max_length=5, blank=True)
@@ -288,6 +313,20 @@ class Member(models.Model):
         null=True,
         blank=True
     )
+    ward = models.ForeignKey(
+    Ward,
+    on_delete=models.PROTECT,
+    null=True,
+    blank=True,
+    related_name="members"
+    )
+
+    family_image = models.ImageField(
+    upload_to="family_images/",
+    null=True,
+    blank=True
+    )
+
 
     grade = models.ForeignKey(
         Grade,
@@ -303,32 +342,33 @@ class Member(models.Model):
     is_active = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
-    # Track previous head state (important)
+
         was_head = None
         if self.pk:
             was_head = Member.objects.filter(
                 pk=self.pk
             ).values_list("is_family_head", flat=True).first()
 
-    # 🔥 Enforce single family head
+    # 🔥 Enforce single active head per (family + house_name)
         if self.is_family_head:
             Member.objects.filter(
             family=self.family,
-            is_family_head=True
-            ).exclude(pk=self.pk).update(is_family_head=False)
+            house_name=self.house_name,
+            is_family_head=True,
+            is_active=True
+        ).exclude(pk=self.pk).update(is_family_head=False)
 
     # 🔢 Age calculation
         if self.dob:
             today = date.today()
             self.age = today.year - self.dob.year - (
                 (today.month, today.day) < (self.dob.month, self.dob.day)
-            )
+        )
 
         super().save(*args, **kwargs)
 
-    # 👤 AUTO-CREATE USER FOR FAMILY HEAD
+    # 👤 Auto create login for new head
         if self.is_family_head and self.is_active:
-        # Only when becoming head (not every save)
             if was_head is False or was_head is None:
                 if not self.email:
                     raise ValidationError(
@@ -336,6 +376,7 @@ class Member(models.Model):
                     )
 
                 create_family_head_user(self)
+
 
 
     def __str__(self):
@@ -554,3 +595,113 @@ class Baptism(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.register_number})"
+
+#marriage register
+class Marriage(models.Model):
+    MARRIAGE_TYPE_CHOICES = (
+        ("ADD_BRIDE", "Add Bride to Parish"),
+        ("TRANSFER_BRIDE", "Transfer Bride from Parish"),
+    )
+
+    church = models.ForeignKey(
+        Church,
+        on_delete=models.CASCADE,
+        related_name="marriages"
+    )
+
+    family = models.ForeignKey(
+        Family,
+        on_delete=models.PROTECT,
+        related_name="marriages"
+    )
+
+    marriage_type = models.CharField(
+        max_length=20,
+        choices=MARRIAGE_TYPE_CHOICES
+    )
+
+    date = models.DateField()
+    register_number = models.CharField(max_length=50, unique=True)
+
+    # -------------------------
+    # GROOM (internal or external)
+    # -------------------------
+    groom_member = models.ForeignKey(
+        Member,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="marriages_as_groom"
+    )
+
+    groom_name = models.CharField(max_length=150, blank=True)
+
+    relation_of_groom_with_main_member = models.ForeignKey(
+        Relationship,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="groom_marriages"
+    )
+
+    # -------------------------
+    # BRIDE (internal or external)
+    # -------------------------
+    bride_member = models.ForeignKey(
+        Member,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="marriages_as_bride"
+    )
+
+    bride_name = models.CharField(max_length=150, blank=True)
+    bride_address = models.TextField(blank=True)
+
+    relation_of_bride_with_main_member = models.ForeignKey(
+        Relationship,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="bride_marriages"
+    )
+
+    # -------------------------
+    # PARENTS
+    # -------------------------
+    groom_father = models.CharField(max_length=150)
+    groom_mother = models.CharField(max_length=150)
+    bride_father = models.CharField(max_length=150)
+    bride_mother = models.CharField(max_length=150)
+
+    nationality_of_groom = models.CharField(max_length=100)
+    nationality_of_bride = models.CharField(max_length=100)
+
+    # -------------------------
+    # WITNESSES
+    # -------------------------
+    witness_bride_side = models.CharField(max_length=150)
+    witness_groom_side = models.CharField(max_length=150)
+
+    # -------------------------
+    # MINISTERS
+    # -------------------------
+    minister_of_marriage = models.CharField(max_length=150)
+    other_priests = models.TextField(blank=True)
+
+    # -------------------------
+    # TRANSFER INFO (only for transfer type)
+    # -------------------------
+    transfer_to = models.CharField(max_length=150, blank=True)
+
+    remarks = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        groom_display = (
+            self.groom_member.name
+            if self.groom_member
+            else self.groom_name
+        )
+        return f"{self.register_number} - {groom_display}"

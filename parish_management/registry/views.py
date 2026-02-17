@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsChurchAuthenticated,IsChurchUser, IsMemberUser
 from registry.services import calculate_new_bill_amount, calculate_prorated_upgrade_amount, get_next_subscription_action
 from .models import Baptism, Bill, Church, Grade, Relationship, UpgradeRequest, Ward, Family, Member,Package
-from .serializers import BaptismSerializer, BillDetailSerializer, BillListSerializer, ChurchListSerializer, FamilyMemberSerializer, GradeSerializer, MemberProfileSerializer, MobileFamilyDetailSerializer, MobileFamilyListSerializer, RelationshipSerializer, SubscriptionExpirySerializer, UpgradeSerializer, WardSerializer, FamilySerializer, MemberSerializer,PackageSerializer, WardWithFamilyCountSerializer
+from .serializers import BaptismSerializer, BillDetailSerializer, BillListSerializer, ChurchListSerializer, FamilyHeadCreateSerializer, FamilyMemberSerializer, GradeSerializer, MemberProfileSerializer, MobileFamilyBaptismSerializer, MobileFamilyDetailSerializer, MobileFamilyListSerializer, MobileFamilyMemberSerializer, RelationshipSerializer, SubscriptionExpirySerializer, UpgradeSerializer, WardSerializer, FamilySerializer, MemberSerializer,PackageSerializer, WardWithFamilyCountSerializer
 from rest_framework.generics import ListAPIView
 from .models import ChurchSubscription
 from .serializers import SubscribeSerializer,UpgradeRequestSerializer
@@ -18,28 +18,25 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from django.db.models import Count,Sum
+from django.db.models import Q,F
 
 class ChurchContextMixin:
+
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        # Only add church to context if the user has one
-        if hasattr(self.request.user, 'church'):
-            context["church"] = self.request.user.church
+        context["church"] = self.request.user.church
         return context
 
     def get_queryset(self):
-        # 1. Start with all objects
-        queryset = self.model.objects.all()
-        
-        # 2. Check if the model has a field named 'church'
-        has_church_field = any(f.name == 'church' for f in self.model._meta.get_fields())
-        
-        # 3. Only filter if the field exists
-        if has_church_field:
-            return queryset.filter(church=self.request.user.church)
-        
-        # 4. Otherwise, return all (for global models like Grade/Relationship)
-        return queryset
+        if not hasattr(self.model, "church"):
+            raise Exception(
+                f"{self.model.__name__} must have a church field."
+            )
+
+        return self.model.objects.filter(
+            church=self.request.user.church
+        )
+
 
 class ChurchList(ListAPIView):
     permission_classes=[IsAuthenticated]
@@ -69,10 +66,15 @@ class RelationshipListCreateAPIView(ChurchContextMixin,ListCreateAPIView):
     serializer_class = RelationshipSerializer
     permission_classes = [IsAuthenticated, IsChurchUser]
 
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
 class RelationshipdetailView(ChurchContextMixin,RetrieveUpdateDestroyAPIView):
     permission_classes=[IsAuthenticated,IsChurchUser]
     model=Relationship
     serializer_class=RelationshipSerializer
+
+    
 
 class GradeListCreateview(ChurchContextMixin,ListCreateAPIView):
     model=Grade
@@ -128,11 +130,43 @@ class FamilyDetailAPIView(
         return super().destroy(request, *args, **kwargs)
 
 
+class FamilyHeadCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
 
-class MemberListCreateAPIView(ChurchContextMixin,ListCreateAPIView):
+    def post(self, request):
+        serializer = FamilyHeadCreateSerializer(
+            data=request.data,
+            context={"church": request.user.church}
+        )
+
+        serializer.is_valid(raise_exception=True)
+        head = serializer.save()
+
+        return Response(
+            {
+                "message": "Family head created successfully.",
+                "member_id": head.id,
+                "family_id": head.family.id,
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class MemberListCreateAPIView(ChurchContextMixin, ListCreateAPIView):
     model = Member
     serializer_class = MemberSerializer
     permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["church"] = self.request.user.church
+        return context
+
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+
+
 
 
 class MemberDetailAPIView(
@@ -143,12 +177,48 @@ class MemberDetailAPIView(
     serializer_class = MemberSerializer
     permission_classes = [IsAuthenticated, IsChurchUser]
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["church"] = self.request.user.church
+        return context
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        validated_data = serializer.validated_data
+
+        # 🔥 Prevent promoting to head here
+        if (
+            "is_family_head" in validated_data
+            and validated_data["is_family_head"] is True
+            and not instance.is_family_head
+        ):
+            raise ValidationError(
+                "Use family head API to promote a member to head."
+            )
+
+     # 🔥 If member is NOT head → block ward & image
+        if not instance.is_family_head:
+            if "ward" in validated_data:
+                raise ValidationError({
+                "ward": "Only family head can have ward."
+                })
+
+            if "family_image" in validated_data:
+                raise ValidationError({
+                "family_image": "Only family head can have family image."
+                })
+
+        serializer.save()
+
+
     def destroy(self, request, *args, **kwargs):
         member = self.get_object()
 
+        # 🔥 Prevent deleting head if dependents exist in SAME HOUSE
         if member.is_family_head:
             other_members = Member.objects.filter(
                 family=member.family,
+                house_name=member.house_name,
                 is_active=True
             ).exclude(pk=member.pk)
 
@@ -157,13 +227,14 @@ class MemberDetailAPIView(
                     {
                         "detail": (
                             "Cannot delete family head while "
-                            "other members exist."
+                            "dependents exist in this house."
                         )
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
         return super().destroy(request, *args, **kwargs)
+
 
 
 
@@ -688,13 +759,29 @@ class BaptismAPIView(APIView):
         with transaction.atomic():
             baptism = serializer.save()
 
+            # AUTO CREATE MEMBER ONLY FOR PARISH
             if (
                 baptism.baptism_category == "PARISH"
                 and baptism.member is None
             ):
+                main_member = baptism.main_member
+
+                # 🔥 STRICT VALIDATION
+                if not main_member.is_family_head:
+                    raise ValidationError(
+                    "Main member must be a family head."
+                    )
+
+                if main_member.family != baptism.family:
+                    raise ValidationError(
+                        "Main member does not belong to selected family."
+                )
+
                 member = Member.objects.create(
                     church=baptism.church,
                     family=baptism.family,
+                    house_name=main_member.house_name,  # ✅ CRITICAL
+                    ward=main_member.ward,              # ✅ CRITICAL
                     name=baptism.name,
                     baptismal_name=baptism.baptismal_name,
                     gender=baptism.gender,
@@ -709,13 +796,14 @@ class BaptismAPIView(APIView):
                     is_active=True
                 )
 
-                baptism.member = member
-                baptism.save(update_fields=["member"])
+            baptism.member = member
+            baptism.save(update_fields=["member"])
 
         return Response(
             BaptismSerializer(baptism).data,
             status=status.HTTP_201_CREATED
         )
+
 
 
 
@@ -821,16 +909,38 @@ class BaptismCertificateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+
+        # 🔒 Ensure logged-in user is a family head
+        member = getattr(request.user, "member", None)
+
+        if not member or not member.is_family_head:
+            return Response(
+                {"detail": "Only family head can access certificates."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 🔒 Fetch baptism only inside same family + house
         baptism = get_object_or_404(
-            Baptism,
+            Baptism.objects.select_related(
+                "church",
+                "family",
+                "main_member",
+                "relation_with_main_member",
+                "member",
+            ),
             pk=pk,
-            church=request.user.church
+            baptism_category="PARISH",
+            family=member.family,
+            member__house_name=member.house_name,
+            member__is_active=True,
+            member__expired=False,
         )
 
+        baptism_member = baptism.member
+        main_member = baptism.main_member
+
         data = {
-            "certificate_type": (
-                "PARISH" if baptism.baptism_category == "PARISH" else "OTHER"
-            ),
+            "certificate_type": "PARISH",
 
             # -------------------------
             # CHURCH INFO
@@ -870,34 +980,35 @@ class BaptismCertificateAPIView(APIView):
             "god_mother": baptism.god_mother,
 
             # -------------------------
-            # PARISH MEMBER DETAILS
+            # PARISH DETAILS
             # -------------------------
-            "parish_member_details": None,
-        }
-
-        if baptism.baptism_category == "PARISH":
-            data["parish_member_details"] = {
-                "family_name": baptism.family.family_name,
-                "house_name": baptism.family.house_name,
+            "parish_member_details": {
+                "family_name": member.family.family_name,
+                "house_name": member.house_name,
                 "main_member_name": (
-                    baptism.main_member.name if baptism.main_member else None
+                    main_member.name if main_member else None
                 ),
                 "relationship": (
                     baptism.relation_with_main_member.name
                     if baptism.relation_with_main_member
                     else None
                 ),
-                "member_id": baptism.member.id if baptism.member else None,
-            }
+                "member_id": (
+                    str(baptism_member.id) if baptism_member else None
+                ),
+            },
+        }
 
         return Response(data, status=status.HTTP_200_OK)
+
+
 
 
 
 class FamilyMembersAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, family_id):
+    def get(self, request, family_id, house_name):
         family = get_object_or_404(
             Family,
             id=family_id,
@@ -905,11 +1016,20 @@ class FamilyMembersAPIView(APIView):
         )
 
         members = Member.objects.filter(
-            family=family
-        ).order_by("-is_family_head", "name")  # ✅ correct field
+            family=family,
+            house_name=house_name,
+            is_active=True,
+            expired=False
+        ).order_by("-is_family_head", "name")
 
-        serializer = FamilyMemberSerializer(members, many=True)
+        serializer = FamilyMemberSerializer(
+            members,
+            many=True,
+            context={"request": request}
+        )
+
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 
 #mobile directory apis
@@ -917,65 +1037,146 @@ class WardListWithFamilyCountAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        wards = (
-            Ward.objects
-            .filter(church=request.user.church)
-            .annotate(family_count=Count("families"))
-            .order_by("ward_name")
-        )
+        wards = Ward.objects.filter(
+            church=request.user.church
+        ).annotate(
+            family_count=Count(
+                "members",
+                filter=Q(
+                    members__is_family_head=True,
+                    members__is_active=True,
+                    members__expired=False
+                )
+            )
+        ).order_by("ward_name")
 
         serializer = WardWithFamilyCountSerializer(wards, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.data)
+
     
 class WardFamiliesMobileAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, ward_id):
-        # Ensure ward belongs to church
-        get_object_or_404(
+        ward = get_object_or_404(
             Ward,
             id=ward_id,
             church=request.user.church
         )
 
-        families_qs = (
-            Family.objects
+        heads = (
+            Member.objects
             .filter(
-                ward_id=ward_id,
-                church=request.user.church
+                ward=ward,
+                is_family_head=True,
+                is_active=True,
+                expired=False
             )
-            .annotate(member_count=Count("members"))
-            .order_by("family_name")
+            .annotate(
+                member_count=Count(
+                    "family__members",
+                    filter=Q(
+                        family__members__house_name=F("house_name"),
+                        family__members__is_active=True,
+                        family__members__expired=False
+                    )
+                )
+            )
+            .order_by("family__family_name")
         )
 
-        total_families = families_qs.count()
-        total_members = families_qs.aggregate(
-            total=Sum("member_count")
-        )["total"] or 0
-
         serializer = MobileFamilyListSerializer(
-            families_qs,
+            heads,
             many=True,
             context={"request": request}
         )
 
-        return Response(
-            {
-                "total_families": total_families,
-                "total_members": total_members,
-                "families": serializer.data,
-            }
-        )
+        return Response({
+            "total_families": heads.count(),
+            "total_members": sum([h.member_count for h in heads]),
+            "families": serializer.data
+        })
+
     
 class FamilyDetailMobileAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, family_id):
+    def get(self, request, family_id, house_name):
         family = get_object_or_404(
             Family,
             id=family_id,
             church=request.user.church
         )
 
-        serializer = MobileFamilyDetailSerializer(family)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        members = Member.objects.filter(
+            family=family,
+            house_name=house_name,
+            is_active=True,
+            expired=False
+        ).order_by("-is_family_head", "name")
+
+        head = members.filter(is_family_head=True).first()
+
+        return Response({
+            "family_name": family.family_name,
+            "house_name": house_name,
+            "member_count": members.count(),
+            "family_image": (
+                request.build_absolute_uri(head.family_image.url)
+                if head and head.family_image else None
+            ),
+            "members": MobileFamilyMemberSerializer(
+                members,
+                many=True
+            ).data
+        })
+
+
+
+class FamilyBaptismsMobileAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        # 🔒 Must be family head
+        if request.user.role != "USER":
+            return Response(
+                {"detail": "Only family members allowed."},
+                status=403
+            )
+
+        member = request.user.member
+
+        if not member or not member.is_family_head:
+            return Response(
+                {"detail": "Only family head can access this."},
+                status=403
+            )
+
+        family = member.family
+        house_name = member.house_name
+
+        baptisms = (
+            Baptism.objects
+            .select_related("member")
+            .filter(
+                family=family,
+                baptism_category="PARISH",
+                member__house_name=house_name,
+                member__is_active=True,
+                member__expired=False
+            )
+            .order_by("-date_of_baptism")
+        )
+
+        serializer = MobileFamilyBaptismSerializer(
+            baptisms,
+            many=True
+        )
+
+        return Response({
+            "family_name": family.family_name,
+            "house_name": house_name,
+            "baptism_count": baptisms.count(),
+            "baptisms": serializer.data
+        })

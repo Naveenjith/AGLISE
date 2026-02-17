@@ -124,7 +124,7 @@ WSGI_APPLICATION = 'parish_management.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': "mysql.connector.django",
-        'NAME':'aglise',
+        'NAME':'eglise',
         "USER": "root",
         "PASSWORD": "navi@123",
         "HOST": "127.0.0.1",
@@ -193,3 +193,5 @@ EMAIL_HOST_USER = "navinjith555@@gmail.com"
 EMAIL_HOST_PASSWORD = "qzhd rvrl wsly zypp"
 
 DEFAULT_FROM_EMAIL = "EGLISE <navinjith555@gmail.com>"
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
