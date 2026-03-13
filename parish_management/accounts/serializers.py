@@ -23,7 +23,7 @@ class LoginSerializer(serializers.Serializer):
         )
 
         if not user:
-            raise serializers.ValidationError("Invalid credentials")
+            raise serializers.ValidationError("Invalid email or password")
 
         # ADMIN restriction
         if user.role == "ADMIN":

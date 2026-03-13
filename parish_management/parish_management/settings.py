@@ -57,11 +57,12 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-FRONTEND_LOGIN_URL = "https://app.eglise.com"
+#FRONTEND_LOGIN_URL = "https://app.eglise.com"
 
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "https://demo5.appziatec.in"
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -72,6 +73,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
+    "https://demo5.appziatec.in"
 ]
 
 
@@ -104,7 +106,7 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": True,
     "ALGORITHM": "HS256",
@@ -190,7 +192,7 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 
 EMAIL_HOST_USER = "navinjith555@@gmail.com"
-EMAIL_HOST_PASSWORD = "qzhd rvrl wsly zypp"
+EMAIL_HOST_PASSWORD = "udhq gpbq aloh vxnz"
 
 DEFAULT_FROM_EMAIL = "EGLISE <navinjith555@gmail.com>"
 

@@ -1,14 +1,17 @@
 from datetime import date
 from django.shortcuts import get_object_or_404
+from rest_framework import generics
 from rest_framework.generics import (
     ListCreateAPIView,
     RetrieveUpdateDestroyAPIView,
+    UpdateAPIView,
 )
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsChurchAuthenticated,IsChurchUser, IsMemberUser
-from registry.services import calculate_new_bill_amount, calculate_prorated_upgrade_amount, get_next_subscription_action
-from .models import Baptism, Bill, Church, Grade, Relationship, UpgradeRequest, Ward, Family, Member,Package
-from .serializers import BaptismSerializer, BillDetailSerializer, BillListSerializer, ChurchListSerializer, FamilyHeadCreateSerializer, FamilyMemberSerializer, GradeSerializer, MemberProfileSerializer, MobileFamilyBaptismSerializer, MobileFamilyDetailSerializer, MobileFamilyListSerializer, MobileFamilyMemberSerializer, RelationshipSerializer, SubscriptionExpirySerializer, UpgradeSerializer, WardSerializer, FamilySerializer, MemberSerializer,PackageSerializer, WardWithFamilyCountSerializer
+from accounts.utils import create_family_head_user
+from registry.services import calculate_new_bill_amount, calculate_prorated_upgrade_amount, get_next_subscription_action, register_death
+from .models import Baptism, Bill, Church, DeathRegister, Designation, DheshaKuri, Diocese, Grade, Marriage, Priest, PriestChange, RegisterSetting, Relationship, TombFee, TombType, UpgradeRequest, VilichCholluKuri, Ward, Family, Member,Package
+from .serializers import BaptismSerializer, BillDetailSerializer, BillListSerializer, ChurchDetailSerializer, ChurchListSerializer, DeathRegisterSerializer, DesignationSerializer, DheshaKuriSerializer, DioceseSerializer, FamilyHeadCreateSerializer, FamilyHeadUpdateSerializer, FamilyMemberSerializer, GradeSerializer, InactiveMemberSerializer, MarriageCertificateSerializer, MarriageSerializer, MemberProfileSerializer, MobileFamilyBaptismSerializer, MobileFamilyDetailSerializer, MobileFamilyListSerializer, MobileFamilyMemberSerializer, PriestChangeSerializer, PriestNameSerializer,PriestSerializer, RegisterSettingSerializer, RelationshipSerializer, SubscriptionExpirySerializer, TombFeeSerializer, TombTypeSerializer, UpgradeSerializer, VilichCholluKuriSerializer, WardSerializer, FamilySerializer, MemberSerializer,PackageSerializer, WardWithFamilyCountSerializer
 from rest_framework.generics import ListAPIView
 from .models import ChurchSubscription
 from .serializers import SubscribeSerializer,UpgradeRequestSerializer
@@ -42,6 +45,14 @@ class ChurchList(ListAPIView):
     permission_classes=[IsAuthenticated]
     serializer_class = ChurchListSerializer
     queryset = Church.objects.all().order_by("-created_at")
+
+class MyChurchAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        church = request.user.church
+        serializer = ChurchDetailSerializer(church)
+        return Response(serializer.data)
 
 
 
@@ -467,6 +478,11 @@ class ChurchDashboardAPIView(APIView):
     def get(self, request):
         church = request.user.church
 
+        # Build full logo URL
+        logo_url = None
+        if church.logo:
+            logo_url = request.build_absolute_uri(church.logo.url)
+
         # --------------------
         # Church basic details
         # --------------------
@@ -475,9 +491,14 @@ class ChurchDashboardAPIView(APIView):
             "name": church.name,
             "city": church.city,
             "diocese": church.diocese_name,
+            "vicar":church.vicar,
+            "asst_vicar":church.asst_vicar1,
+            "asst_vicar2":church.asst_vicar2,
+            "email": church.email,
             "email": church.email,
             "phone": church.phone_number,
             "is_active": church.is_active,
+            "logo": logo_url,
         }
 
         # --------------------
@@ -534,7 +555,6 @@ class ChurchDashboardAPIView(APIView):
             "members": members_data,
             "upgrade_required": upgrade_required,
         })
-    
 
 #member
 class MemberProfileAPIView(APIView):
@@ -757,8 +777,11 @@ class BaptismAPIView(APIView):
         serializer.is_valid(raise_exception=True)
 
         with transaction.atomic():
-            baptism = serializer.save()
+            baptism = serializer.save(
+            church=request.user.church
+             )
 
+            member=None
             # AUTO CREATE MEMBER ONLY FOR PARISH
             if (
                 baptism.baptism_category == "PARISH"
@@ -796,8 +819,9 @@ class BaptismAPIView(APIView):
                     is_active=True
                 )
 
-            baptism.member = member
-            baptism.save(update_fields=["member"])
+            if member:
+                baptism.member = member
+                baptism.save(update_fields=["member"])
 
         return Response(
             BaptismSerializer(baptism).data,
@@ -948,6 +972,9 @@ class BaptismCertificateAPIView(APIView):
             "church": {
                 "name": baptism.church.name,
                 "address": baptism.church.address,
+                "city": baptism.church.city,
+                "email": baptism.church.email,
+                "phone": baptism.church.phone_number,
             },
 
             # -------------------------
@@ -956,6 +983,8 @@ class BaptismCertificateAPIView(APIView):
             "register_number": baptism.register_number,
             "date_of_baptism": baptism.date_of_baptism,
             "parish_of_baptism": baptism.parish_of_baptism,
+            "panchayath": baptism.panchayath,
+            "priest_name": baptism.priest_name,
 
             # -------------------------
             # PERSON DETAILS
@@ -1000,7 +1029,96 @@ class BaptismCertificateAPIView(APIView):
         }
 
         return Response(data, status=status.HTTP_200_OK)
+#baptims certificate for church
+class ChurchBaptismCertificateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
 
+    def get(self, request, pk):
+
+        baptism = get_object_or_404(
+            Baptism.objects.select_related(
+                "church",
+                "family",
+                "main_member",
+                "relation_with_main_member",
+                "member",
+            ),
+            pk=pk,
+            church=request.user.church
+        )
+
+        baptism_member = baptism.member
+        main_member = baptism.main_member
+
+        data = {
+            "certificate_type": baptism.baptism_category,
+
+            # -------------------------
+            # CHURCH INFO
+            # -------------------------
+            "church": {
+                "name": baptism.church.name,
+                "address": baptism.church.address,
+                "city": baptism.church.city,
+                "email": baptism.church.email,
+                "phone": baptism.church.phone_number,
+            },
+
+            # -------------------------
+            # BAPTISM DETAILS
+            # -------------------------
+            "register_number": baptism.register_number,
+            "date_of_baptism": baptism.date_of_baptism,
+            "parish_of_baptism": baptism.parish_of_baptism,
+            "panchayath": baptism.panchayath,
+            "priest_name": baptism.priest_name,
+
+            # -------------------------
+            # PERSON DETAILS
+            # -------------------------
+            "name": baptism.name,
+            "baptismal_name": baptism.baptismal_name,
+            "gender": baptism.gender,
+            "date_of_birth": baptism.dob,
+            "place_of_birth": baptism.place_of_birth,
+            "address": baptism.address,
+
+            # -------------------------
+            # PARENTS
+            # -------------------------
+            "father_name": baptism.father_name,
+            "mother_name": baptism.mother_name,
+
+            # -------------------------
+            # GODPARENTS
+            # -------------------------
+            "god_father": baptism.god_father,
+            "god_mother": baptism.god_mother,
+
+            # -------------------------
+            # PARISH DETAILS
+            # -------------------------
+            "parish_member_details": {
+                "family_name": (
+                    baptism.family.family_name if baptism.family else None
+                ),
+                "house_name": (
+                    baptism_member.house_name if baptism_member else None
+                ),
+                "main_member_name": (
+                    main_member.name if main_member else None
+                ),
+                "relationship": (
+                    baptism.relation_with_main_member.name
+                    if baptism.relation_with_main_member else None
+                ),
+                "member_id": (
+                    str(baptism_member.id) if baptism_member else None
+                ),
+            },
+        }
+
+        return Response(data, status=status.HTTP_200_OK)
 
 
 
@@ -1180,3 +1298,672 @@ class FamilyBaptismsMobileAPIView(APIView):
             "baptism_count": baptisms.count(),
             "baptisms": serializer.data
         })
+
+#pre announcement
+class VilichCholluKuriCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def post(self, request):
+
+        serializer = VilichCholluKuriSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        serializer.save(
+            church=request.user.church
+        )
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+class VilichCholluKuriDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get(self, request, pk):
+
+        vilich = get_object_or_404(
+            VilichCholluKuri,
+            pk=pk,
+            church=request.user.church
+        )
+
+        serializer = VilichCholluKuriSerializer(vilich)
+        return Response(serializer.data)
+
+#marriage register
+class MarriageListCreateAPIView(
+    ChurchContextMixin,
+    ListCreateAPIView
+):
+    model = Marriage
+    serializer_class = MarriageSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        return Marriage.objects.filter(
+        church=self.request.user.church
+        ).select_related(
+        "groom_member",
+        "bride_member",
+        "family"
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+
+class MarriageDetailAPIView(
+    ChurchContextMixin,
+    RetrieveUpdateDestroyAPIView
+):
+    model = Marriage
+    serializer_class = MarriageSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+#certificate vilich chollu GET
+class MarriageCertificateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get(self, request, pk):
+        marriage = get_object_or_404(
+            Marriage,
+            pk=pk,
+            church=request.user.church
+        )
+
+        serializer = MarriageCertificateSerializer(marriage)
+        return Response(serializer.data)
+    
+class DheshaKuriAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get(self, request, pk):
+
+        dhesha = get_object_or_404(
+            DheshaKuri.objects.select_related("church", "marriage"),
+            marriage__id=pk,
+            church=request.user.church
+        )
+
+        serializer = DheshaKuriSerializer(dhesha)
+        return Response(serializer.data)
+    
+#marriage list for mobile 
+class FamilyMarriagesMobileAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        member = getattr(request.user, "member", None)
+
+        if not member or not member.is_family_head:
+            return Response(
+                {"detail": "Only family head can access this."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        marriages = (
+            Marriage.objects
+            .select_related("groom_member", "bride_member")
+            .filter(
+            church=member.church,
+            family=member.family,
+            marriage_type="ADD_BRIDE" 
+            )
+        .filter(
+            Q(bride_member__house_name=member.house_name) |
+            Q(groom_member__house_name=member.house_name)
+        )
+            .order_by("-date")
+)
+
+        data = []
+
+        for marriage in marriages:
+            data.append({
+                "id": marriage.id,
+                "marriage_type": marriage.marriage_type,
+                "register_number": marriage.register_number,
+                "date": marriage.date,
+                "groom_name": (
+                    marriage.groom_member.name
+                    if marriage.groom_member
+                    else marriage.groom_name
+                ),
+                "bride_name": (
+                    marriage.bride_member.name
+                    if marriage.bride_member
+                    else marriage.bride_name
+                ),
+            })
+
+        return Response({
+            "family_name": member.family.family_name,
+            "house_name": member.house_name,
+            "marriage_count": marriages.count(),
+            "marriages": data
+        })
+#mobile get
+class MarriageCertificateMobileAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+
+        member = getattr(request.user, "member", None)
+
+        if not member or not member.is_family_head:
+            return Response(
+                {"detail": "Only family head can access certificates."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        marriage = get_object_or_404(
+            Marriage.objects.select_related(
+                "church",
+                "family",
+                "groom_member",
+                "bride_member",
+            ),
+            pk=pk,
+            family=member.family,
+            church=member.church,
+        )
+
+        # 🔥 BLOCK TRANSFER_BRIDE
+        if marriage.marriage_type != "ADD_BRIDE":
+            return Response(
+                {"detail": "Marriage certificate available only for ADD_BRIDE."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 🔐 HOUSE LEVEL SECURITY
+        if not (
+            (marriage.bride_member and marriage.bride_member.house_name == member.house_name) or
+            (marriage.groom_member and marriage.groom_member.house_name == member.house_name)
+        ):
+            return Response(
+                {"detail": "You do not have permission to access this marriage."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = MarriageCertificateSerializer(marriage)
+
+        return Response(serializer.data)
+    
+class UserVilichCholluKuriAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        member = getattr(request.user, "member", None)
+
+        if not member or not member.is_family_head:
+            return Response(
+                {"detail": "Only family head can access this."},
+                status=403
+            )
+
+        vilich = (
+            VilichCholluKuri.objects
+            .select_related("marriage")
+            .filter(
+                church=member.church,
+                marriage__family=member.family
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not vilich:
+            return Response(
+                {"detail": "Pre-announcement not found."},
+                status=404
+            )
+
+        serializer = VilichCholluKuriSerializer(vilich)
+        return Response(serializer.data)
+class UserDheshaKuriAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        member = request.user.member
+
+        if not member or not member.is_family_head:
+            return Response(
+                {"detail": "Only family head can access this."},
+                status=403
+            )
+
+        dhesha = (
+            DheshaKuri.objects
+            .select_related("church", "marriage")
+            .filter(
+                church=member.church,
+                marriage__family=member.family,
+                marriage__marriage_type="TRANSFER_BRIDE"
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not dhesha:
+            return Response(
+                {"detail": "Dhesha Kuri not found."},
+                status=404
+            )
+
+        serializer = DheshaKuriSerializer(dhesha)
+        return Response(serializer.data)
+
+
+#inactive users LIST
+class InactiveMembersAPIView(ChurchContextMixin, ListAPIView):
+    model = Member
+    serializer_class = InactiveMemberSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            is_active=False,
+            expired=False
+        ).order_by("family__family_name", "house_name", "name")
+    
+
+#Death Register
+class DeathRegisterFinalizeView(APIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+
+    def post(self, request):
+        serializer = DeathRegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        member = serializer.validated_data["member"]
+
+        try:
+            death = DeathRegister.objects.get(
+                member=member,
+                status="PENDING"
+            )
+        except DeathRegister.DoesNotExist:
+            return Response(
+                {"error": "No pending death request found for this member."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+
+            # Update the pending record
+            death.died_on = serializer.validated_data.get("died_on")
+            death.funeral_on = serializer.validated_data.get("funeral_on")
+            death.tomb_type = serializer.validated_data.get("tomb_type")
+            death.tomb_charge = serializer.validated_data.get("tomb_charge")
+            death.tomb_idn = serializer.validated_data.get("tomb_idn")
+            death.reason_of_death = serializer.validated_data.get("reason_of_death")
+            death.remarks = serializer.validated_data.get("remarks")
+            death.status = "COMPLETED"
+            death.save()
+
+            # 🔥 Spouse widow logic
+            if member.spouse:
+                member.spouse.marital_status = "WIDOWED"
+                member.spouse.save(update_fields=["marital_status"])
+
+        return Response(
+            DeathRegisterSerializer(death).data,
+            status=status.HTTP_200_OK
+        )
+    
+#promote to head
+class PromoteFamilyHeadAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def post(self, request, pk):
+
+        try:
+            member = Member.objects.get(
+                pk=pk,
+                church=request.user.church
+            )
+        except Member.DoesNotExist:
+            return Response(
+                {"error": "Member not found."},
+                status=404
+            )
+
+        if member.expired:
+            return Response(
+                {"error": "Cannot promote expired member as head."},
+                status=400
+            )
+
+        if member.is_family_head:
+            return Response(
+                {"error": "Member is already head."},
+                status=400
+            )
+
+        if not member.email:
+            return Response(
+                {"error": "Member must have an email to become family head."},
+                status=400
+            )
+
+        with transaction.atomic():
+
+            # Get old head
+            old_head = Member.objects.filter(
+                family=member.family,
+                house_name=member.house_name,
+                is_family_head=True
+            ).first()
+
+            # Remove old head
+            Member.objects.filter(
+                family=member.family,
+                house_name=member.house_name,
+                is_family_head=True
+            ).update(is_family_head=False)
+
+            # Disable old head login
+            if old_head and hasattr(old_head, "user"):
+                old_head.user.is_active = False
+                old_head.user.save(update_fields=["is_active"])
+
+            # Promote new head
+            member.is_family_head = True
+            member.save(update_fields=["is_family_head"])
+
+            # 🔹 Create login + send email
+            create_family_head_user(member)
+
+        return Response(
+            {"message": "Member promoted as family head and credentials sent."},
+            status=200
+        )
+class DeathRegisterUpdateAPIView(UpdateAPIView):
+    serializer_class = DeathRegisterSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        return DeathRegister.objects.filter(
+            church=self.request.user.church,
+            status="PENDING"
+        )
+
+    def perform_update(self, serializer):
+
+        death = serializer.save()
+
+        # Required validations before completing
+        if not death.died_on:
+            raise ValidationError("Date of death is required.")
+
+        if not death.funeral_on:
+            raise ValidationError("Funeral date is required.")
+
+        if not death.tomb_type:
+            raise ValidationError("Tomb type is required.")
+
+        if death.tomb_charge is None:
+            raise ValidationError("Tomb charge must be provided.")
+
+        # Mark register completed
+        death.status = "COMPLETED"
+        death.save()
+
+        member = death.member
+
+        # Widow logic
+        if member.spouse:
+            spouse = member.spouse
+
+            spouse.marital_status = "WIDOWED"
+            spouse.spouse = None
+            spouse.save(update_fields=["marital_status", "spouse"])
+
+            member.spouse = None
+            member.save(update_fields=["spouse"])
+
+#family head edit details
+class FamilyHeadUpdateAPIView(UpdateAPIView):
+    serializer_class = FamilyHeadUpdateSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        return Member.objects.filter(
+            church=self.request.user.church,
+            is_family_head=True,
+            is_active=True
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["church"] = self.request.user.church
+        return context
+
+#members under a church
+class ChurchMembersAPIView(ListAPIView):
+    serializer_class = FamilyMemberSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        church = self.request.user.church
+
+        return Member.objects.filter(
+            church=church,
+            is_active=True
+        ).select_related(
+            "family",
+            "relationship",
+            "grade",
+            "spouse"
+        ).order_by("name")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context
+    
+#new tables and crud
+#tomb
+class TombTypeListCreateView(generics.ListCreateAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = TombTypeSerializer
+    def get_queryset(self):
+        return TombType.objects.filter(
+            church=self.request.user.church
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+
+class TombTypeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = TombTypeSerializer
+    def get_queryset(self):
+        return TombType.objects.filter(
+            church=self.request.user.church
+        )
+
+
+class TombFeeListCreateView(generics.ListCreateAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = TombFeeSerializer
+    def get_queryset(self):
+        return TombFee.objects.filter(
+            church=self.request.user.church
+        ).select_related("tomb_type")
+
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+
+class TombFeeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = TombFeeSerializer
+    def get_queryset(self):
+        return TombFee.objects.filter(
+            church=self.request.user.church
+        ).select_related("tomb_type")
+
+
+#designation
+class DesignationListCreateView(generics.ListCreateAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = DesignationSerializer
+    def get_queryset(self):
+        return Designation.objects.filter(
+            church=self.request.user.church
+        ).order_by("designation_name")
+
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+
+class DesignationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = DesignationSerializer
+    def get_queryset(self):
+        return Designation.objects.filter(
+            church=self.request.user.church
+        ).order_by("designation_name")
+
+#dioces
+class DioceseListCreateView(generics.ListCreateAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = DioceseSerializer
+    def get_queryset(self):
+        return Diocese.objects.filter(
+            church=self.request.user.church
+        ).order_by("name")
+
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+
+class DioceseDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = DioceseSerializer
+    def get_queryset(self):
+        return Diocese.objects.filter(
+            church=self.request.user.church
+        ).order_by("name")
+
+
+#priest master
+class PriestListCreateView(generics.ListCreateAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = PriestSerializer
+    def get_queryset(self):
+        return Priest.objects.filter(
+            church=self.request.user.church
+        ).order_by("name")
+
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+
+class PriestDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = PriestSerializer
+    def get_queryset(self):
+        return Priest.objects.filter(
+            church=self.request.user.church
+        ).order_by("name")
+
+
+
+#priest change 
+class PriestChangeListCreateView(generics.ListCreateAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = PriestChangeSerializer
+    def get_queryset(self):
+        return PriestChange.objects.filter(
+            church=self.request.user.church
+        ).select_related("priest", "designation")
+
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+
+class PriestChangeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes=[IsAuthenticated, IsChurchUser]
+    serializer_class = PriestChangeSerializer
+    def get_queryset(self):
+        return PriestChange.objects.filter(
+            church=self.request.user.church
+        ).select_related("priest", "designation")
+
+
+
+#Registersettings
+class RegisterSettingCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def post(self, request):
+
+        church = request.user.church
+        register_type = request.data.get("register_type")
+
+        # prevent duplicate settings
+        if RegisterSetting.objects.filter(
+            church=church,
+            register_type=register_type
+        ).exists():
+            return Response(
+                {"error": "Settings already exist for this register type."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = RegisterSettingSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        serializer.save(church=church)
+
+        return Response(
+            {
+                "message": "Register settings created successfully.",
+                "data": serializer.data
+            },
+            status=status.HTTP_201_CREATED
+        )
+    
+class RegisterSettingListAPIView(ListAPIView):
+    serializer_class = RegisterSettingSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        return RegisterSetting.objects.filter(
+            church=self.request.user.church
+        )
+    
+class RegisterSettingUpdateAPIView(UpdateAPIView):
+    serializer_class = RegisterSettingSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+    lookup_field = "register_type"
+
+    def get_queryset(self):
+        return RegisterSetting.objects.filter(
+            church=self.request.user.church
+        )
+#priest GET
+class PriestDropdownAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get(self, request):
+
+        church = request.user.church
+
+        serializer = PriestNameSerializer(church)
+
+        # Convert serializer data to list of names (remove empty ones)
+        priests = [
+            name for name in serializer.data.values()
+            if name
+        ]
+
+        return Response(priests)

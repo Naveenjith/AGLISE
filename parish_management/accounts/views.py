@@ -70,7 +70,7 @@ class LogoutAPIView(APIView):
             )
 
 class ChangePasswordAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsChurchUser]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data)
@@ -205,3 +205,51 @@ def reset_password(request):
     otp_obj.save(update_fields=["is_used"])
 
     return Response({"message": "Password reset successful"}, status=200)
+
+
+
+class CheckEmailAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email", "").strip().lower()
+
+        if not email:
+            return Response(
+                {"detail": "Email is required."},
+                status=400
+            )
+
+        user = (
+            User.objects
+            .filter(email=email)
+            .select_related("church", "member")
+            .first()
+        )
+
+        if not user:
+            return Response(
+                {"exists": False},
+                status=200
+            )
+
+        if not user.is_active:
+            return Response(
+                {
+                    "exists": True,
+                    "active": False,
+                    "detail": "Account is inactive."
+                },
+                status=200
+            )
+
+        return Response(
+            {
+                "exists": True,
+                "active": True,
+                "role": user.role,
+                "user_id": user.id,
+                "church_name": user.church.name if user.church else None,
+            },
+            status=200
+        )

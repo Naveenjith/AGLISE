@@ -407,3 +407,94 @@ def handle_member_death(member, *, new_head_id=None):
 
         new_head.is_family_head = True
         new_head.save(update_fields=["is_family_head"])
+
+
+#death register
+from django.db import transaction
+from django.core.exceptions import ValidationError
+from registry.models import DeathRegister
+from registry.models import Member
+
+
+def register_death(member, validated_data):
+    if member.expired:
+        raise ValidationError("Member already marked as expired.")
+
+    if member.is_family_head:
+        raise ValidationError(
+            "Assign new family head before registering death."
+        )
+
+    with transaction.atomic():
+
+        death = DeathRegister.objects.create(
+            member=member,
+            church=member.church,
+            **validated_data
+        )
+
+        # Update member status
+        member.expired = True
+        member.is_active = False
+        member.inactive_reason = "DECEASED"
+        member.inactive_date = death.died_on
+        member.save()
+
+        # Handle spouse
+        if member.spouse:
+            member.spouse.marital_status = "WIDOWED"
+            member.spouse.save()
+
+    return death
+
+#Reo settings
+from django.db import transaction
+from .models import RegisterSetting
+
+
+def generate_register_number(church, register_type):
+
+    with transaction.atomic():
+
+        setting, created = RegisterSetting.objects.select_for_update().get_or_create(
+            church=church,
+            register_type=register_type
+        )
+
+        number = setting.next_register_number
+
+        prefix = setting.register_prefix or ""
+        suffix = setting.register_suffix or ""
+
+        padded_number = str(number).zfill(setting.register_padding)
+
+        reg_no = f"{prefix}{padded_number}{suffix}"
+
+        setting.next_register_number += 1
+        setting.save(update_fields=["next_register_number"])
+
+        return reg_no
+    
+def generate_folio_number(church):
+
+    with transaction.atomic():
+
+        setting = RegisterSetting.objects.select_for_update().get(
+            church=church,
+            register_type="HEAD"
+        )
+
+        number = setting.next_folio_number
+
+        prefix = setting.folio_prefix or ""
+        suffix = setting.folio_suffix or ""
+
+        padded_number = str(number).zfill(setting.folio_padding)
+
+        folio_no = f"{prefix}{padded_number}{suffix}"
+
+        setting.next_folio_number += 1
+
+        setting.save(update_fields=["next_folio_number"])
+
+        return folio_no

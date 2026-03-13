@@ -1,9 +1,10 @@
 from django.urls import  path
-from .views import ChangePasswordAPIView, LoginAPIView, ChurchProfileAPIView, LogoutAPIView, reset_password
+from .views import ChangePasswordAPIView, CheckEmailAPIView, LoginAPIView, ChurchProfileAPIView, LogoutAPIView, reset_password
 from rest_framework_simplejwt.views import TokenRefreshView
 from accounts.views import forgot_password
 
 urlpatterns = [
+    path("auth/check-email/", CheckEmailAPIView.as_view(), name="check-email"),
     path("login/", LoginAPIView.as_view()),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("logout/", LogoutAPIView.as_view()),
