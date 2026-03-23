@@ -269,7 +269,7 @@ class TombFee(models.Model):
         on_delete=models.CASCADE,
         related_name="fees"
     )
-    tomb_fees = models.DecimalField(max_digits=10, decimal_places=6)
+    tomb_fees = models.DecimalField(max_digits=15, decimal_places=3)
     indication = models.CharField(max_length=255)
     specification = models.TextField(blank=True)
     class Meta:
@@ -861,10 +861,10 @@ class Marriage(models.Model):
     # -------------------------
     # PARENTS
     # -------------------------
-    groom_father = models.CharField(max_length=150)
-    groom_mother = models.CharField(max_length=150)
-    bride_father = models.CharField(max_length=150)
-    bride_mother = models.CharField(max_length=150)
+    groom_father = models.CharField(max_length=150, blank=True)
+    groom_mother = models.CharField(max_length=150, blank=True)
+    bride_father = models.CharField(max_length=150, blank=True)
+    bride_mother = models.CharField(max_length=150, blank=True)
 
     nationality_of_groom = models.CharField(max_length=100)
     nationality_of_bride = models.CharField(max_length=100)
@@ -989,7 +989,7 @@ class DeathRegister(models.Model):
         related_name="death_registers"
     )
 
-    reg_no = models.CharField(max_length=50,blank=True)
+    reg_no = models.CharField(max_length=50,blank=True,null=True)
 
     member = models.OneToOneField(
         Member,
@@ -1134,3 +1134,18 @@ class RegisterSetting(models.Model):
 
     def __str__(self):
         return f"{self.church.name} - {self.register_type}"
+
+class Events(models.Model):
+
+    church = models.ForeignKey(
+        Church,
+        on_delete=models.CASCADE,
+        related_name="events"
+    )
+
+    name = models.CharField(max_length=200)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name}"

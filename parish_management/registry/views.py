@@ -9,9 +9,9 @@ from rest_framework.generics import (
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsChurchAuthenticated,IsChurchUser, IsMemberUser
 from accounts.utils import create_family_head_user
-from registry.services import calculate_new_bill_amount, calculate_prorated_upgrade_amount, get_next_subscription_action, register_death
-from .models import Baptism, Bill, Church, DeathRegister, Designation, DheshaKuri, Diocese, Grade, Marriage, Priest, PriestChange, RegisterSetting, Relationship, TombFee, TombType, UpgradeRequest, VilichCholluKuri, Ward, Family, Member,Package
-from .serializers import BaptismSerializer, BillDetailSerializer, BillListSerializer, ChurchDetailSerializer, ChurchListSerializer, DeathRegisterSerializer, DesignationSerializer, DheshaKuriSerializer, DioceseSerializer, FamilyHeadCreateSerializer, FamilyHeadUpdateSerializer, FamilyMemberSerializer, GradeSerializer, InactiveMemberSerializer, MarriageCertificateSerializer, MarriageSerializer, MemberProfileSerializer, MobileFamilyBaptismSerializer, MobileFamilyDetailSerializer, MobileFamilyListSerializer, MobileFamilyMemberSerializer, PriestChangeSerializer, PriestNameSerializer,PriestSerializer, RegisterSettingSerializer, RelationshipSerializer, SubscriptionExpirySerializer, TombFeeSerializer, TombTypeSerializer, UpgradeSerializer, VilichCholluKuriSerializer, WardSerializer, FamilySerializer, MemberSerializer,PackageSerializer, WardWithFamilyCountSerializer
+from registry.services import calculate_new_bill_amount, calculate_prorated_upgrade_amount, generate_folio_number, get_next_subscription_action, handle_member_death
+from .models import Baptism, Bill, Church, DeathRegister, Designation, DheshaKuri, Diocese, Events, Grade, Marriage, Priest, PriestChange, RegisterSetting, Relationship, TombFee, TombType, UpgradeRequest, VilichCholluKuri, Ward, Family, Member,Package
+from .serializers import BaptismSerializer, BillDetailSerializer, BillListSerializer, ChurchDetailSerializer, ChurchListSerializer, DeathRegisterSerializer, DesignationSerializer, DheshaKuriSerializer, DioceseSerializer, EventSerializer, FamilyHeadCreateSerializer, FamilyHeadUpdateSerializer, FamilyMemberSerializer, GradeSerializer, InactiveMemberSerializer, MarriageCertificateSerializer, MarriageSerializer, MemberProfileSerializer, MobileFamilyBaptismSerializer, MobileFamilyDetailSerializer, MobileFamilyListSerializer, MobileFamilyMemberSerializer, PriestChangeSerializer, PriestNameSerializer,PriestSerializer, RegisterSettingSerializer, RelationshipSerializer, SubscriptionExpirySerializer, TombFeeSerializer, TombTypeSerializer, UpgradeSerializer, VilichCholluKuriSerializer, WardSerializer, FamilySerializer, MemberSerializer,PackageSerializer, WardWithFamilyCountSerializer
 from rest_framework.generics import ListAPIView
 from .models import ChurchSubscription
 from .serializers import SubscribeSerializer,UpgradeRequestSerializer
@@ -22,7 +22,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from django.db.models import Count,Sum
 from django.db.models import Q,F
-
+from registry.services import generate_register_number
 class ChurchContextMixin:
 
     def get_serializer_context(self):
@@ -1303,9 +1303,27 @@ class FamilyBaptismsMobileAPIView(APIView):
 class VilichCholluKuriCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, IsChurchUser]
 
+    def get(self, request):
+
+        vilich_list = VilichCholluKuri.objects.filter(
+            church=request.user.church
+        ).order_by("-created_at")
+
+        serializer = VilichCholluKuriSerializer(
+            vilich_list,
+            many=True,
+            context={"request": request}
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
     def post(self, request):
 
-        serializer = VilichCholluKuriSerializer(data=request.data)
+        serializer = VilichCholluKuriSerializer(
+            data=request.data,
+            context={"request": request}
+        )
+
         serializer.is_valid(raise_exception=True)
 
         serializer.save(
@@ -1313,20 +1331,72 @@ class VilichCholluKuriCreateAPIView(APIView):
         )
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
 class VilichCholluKuriDetailAPIView(APIView):
     permission_classes = [IsAuthenticated, IsChurchUser]
 
-    def get(self, request, pk):
-
-        vilich = get_object_or_404(
+    def get_object(self, request, pk):
+        return get_object_or_404(
             VilichCholluKuri,
             pk=pk,
             church=request.user.church
         )
 
+    # -------------------------
+    # GET
+    # -------------------------
+    def get(self, request, pk):
+
+        vilich = self.get_object(request, pk)
+
         serializer = VilichCholluKuriSerializer(vilich)
         return Response(serializer.data)
+
+    # -------------------------
+    # PATCH
+    # -------------------------
+    def patch(self, request, pk):
+
+        vilich = self.get_object(request, pk)
+
+        # 🚨 Prevent editing after marriage linked
+        if vilich.marriage:
+            return Response(
+                {"error": "Cannot edit. This pre-announcement is already linked to a marriage."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = VilichCholluKuriSerializer(
+            vilich,
+            data=request.data,
+            partial=True,
+            context={"request": request}
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
+
+    # -------------------------
+    # DELETE
+    # -------------------------
+    def delete(self, request, pk):
+
+        vilich = self.get_object(request, pk)
+
+        # 🚨 Prevent deleting after marriage linked
+        if vilich.marriage:
+            return Response(
+                {"error": "Cannot delete. This pre-announcement is already linked to a marriage."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        vilich.delete()
+
+        return Response(
+            {"message": "Pre-announcement deleted successfully"},
+            status=status.HTTP_204_NO_CONTENT
+        )
 
 #marriage register
 class MarriageListCreateAPIView(
@@ -1350,7 +1420,7 @@ class MarriageListCreateAPIView(
         serializer.save(church=self.request.user.church)
 
 
-class MarriageDetailAPIView(
+class   MarriageDetailAPIView(
     ChurchContextMixin,
     RetrieveUpdateDestroyAPIView
 ):
@@ -1614,6 +1684,7 @@ class DeathRegisterFinalizeView(APIView):
         )
     
 #promote to head
+
 class PromoteFamilyHeadAPIView(APIView):
     permission_classes = [IsAuthenticated, IsChurchUser]
 
@@ -1627,102 +1698,139 @@ class PromoteFamilyHeadAPIView(APIView):
         except Member.DoesNotExist:
             return Response(
                 {"error": "Member not found."},
-                status=404
+                status=status.HTTP_404_NOT_FOUND
             )
 
+        # 🔥 Basic validations
         if member.expired:
             return Response(
                 {"error": "Cannot promote expired member as head."},
-                status=400
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         if member.is_family_head:
             return Response(
                 {"error": "Member is already head."},
-                status=400
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         if not member.email:
             return Response(
                 {"error": "Member must have an email to become family head."},
-                status=400
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         with transaction.atomic():
 
-            # Get old head
+            # 🔥 Get current head
             old_head = Member.objects.filter(
                 family=member.family,
                 house_name=member.house_name,
                 is_family_head=True
             ).first()
 
-            # Remove old head
-            Member.objects.filter(
-                family=member.family,
-                house_name=member.house_name,
-                is_family_head=True
-            ).update(is_family_head=False)
+            # 🔥 Demote old head
+            if old_head:
+                old_head.is_family_head = False
+                old_head.save(update_fields=["is_family_head"])
 
-            # Disable old head login
-            if old_head and hasattr(old_head, "user"):
-                old_head.user.is_active = False
-                old_head.user.save(update_fields=["is_active"])
+                if hasattr(old_head, "user"):
+                    old_head.user.is_active = False
+                    old_head.user.save(update_fields=["is_active"])
 
-            # Promote new head
+            # 🔥 CLEAN DATA FOR NEW HEAD
+            member.relationship = None  # must be None
+
+            # 🔥 GENERATE REGISTER NUMBER (ONLY ONCE)
+            if not member.register_number:
+                member.register_number = generate_register_number(
+                    member.church,
+                    "HEAD"
+                )
+
+            # 🔥 GENERATE FOLIO NUMBER (ONLY ONCE)
+            if not member.folio_number:
+                member.folio_number = generate_folio_number(
+                    member.church
+                )
+
+            # 🔥 Promote
             member.is_family_head = True
-            member.save(update_fields=["is_family_head"])
+            member.save(update_fields=[
+                "is_family_head",
+                "relationship",
+                "register_number",
+                "folio_number"
+            ])
 
-            # 🔹 Create login + send email
-            create_family_head_user(member)
+            # 🔥 Handle user account
+            if hasattr(member, "user"):
+                member.user.is_active = True
+                member.user.save(update_fields=["is_active"])
+            else:
+                create_family_head_user(member)
 
         return Response(
-            {"message": "Member promoted as family head and credentials sent."},
-            status=200
+            {
+                "message": "Family head assigned successfully.",
+                "member_id": member.id,
+                "register_number": member.register_number,
+                "folio_number": member.folio_number
+            },
+            status=status.HTTP_200_OK
         )
+class DeathRegisterListAPIView(ListAPIView):
+    serializer_class = DeathRegisterSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        church = self.request.user.church
+
+        queryset = DeathRegister.objects.filter(
+            church=church
+        ).select_related("member")
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            queryset = queryset.filter(status=status_param.upper())
+
+        return queryset.order_by("-created_at")
+
+
+
+
+
 class DeathRegisterUpdateAPIView(UpdateAPIView):
     serializer_class = DeathRegisterSerializer
     permission_classes = [IsAuthenticated, IsChurchUser]
 
     def get_queryset(self):
         return DeathRegister.objects.filter(
-            church=self.request.user.church,
-            status="PENDING"
-        )
+            church=self.request.user.church
+        ).select_related("member")
 
     def perform_update(self, serializer):
 
-        death = serializer.save()
+        death = self.get_object()
 
-        # Required validations before completing
-        if not death.died_on:
-            raise ValidationError("Date of death is required.")
+        if death.status == "COMPLETED":
+            raise ValidationError("Cannot modify completed death record.")
 
-        if not death.funeral_on:
-            raise ValidationError("Funeral date is required.")
+        with transaction.atomic():
 
-        if not death.tomb_type:
-            raise ValidationError("Tomb type is required.")
+            death = serializer.save()
 
-        if death.tomb_charge is None:
-            raise ValidationError("Tomb charge must be provided.")
+            # 🔥 GENERATE REGISTER NUMBER HERE
+            if not death.reg_no:
+                death.reg_no = generate_register_number(
+                    death.church,
+                    "DEATH"
+                )
 
-        # Mark register completed
-        death.status = "COMPLETED"
-        death.save()
+            # 🔥 Mark completed
+            death.status = "COMPLETED"
+            death.save(update_fields=["reg_no", "status"])
 
-        member = death.member
-
-        # Widow logic
-        if member.spouse:
-            spouse = member.spouse
-
-            spouse.marital_status = "WIDOWED"
-            spouse.spouse = None
-            spouse.save(update_fields=["marital_status", "spouse"])
-
-            member.spouse = None
-            member.save(update_fields=["spouse"])
 
 #family head edit details
 class FamilyHeadUpdateAPIView(UpdateAPIView):
@@ -1955,15 +2063,136 @@ class PriestDropdownAPIView(APIView):
     permission_classes = [IsAuthenticated, IsChurchUser]
 
     def get(self, request):
-
         church = request.user.church
 
-        serializer = PriestNameSerializer(church)
+        priests = []
 
-        # Convert serializer data to list of names (remove empty ones)
-        priests = [
-            name for name in serializer.data.values()
-            if name
-        ]
+        if church.vicar:
+            priests.append({
+                "name": church.vicar,
+                "designation": "Vicar"
+            })
+
+        if church.asst_vicar1:
+            priests.append({
+                "name": church.asst_vicar1,
+                "designation": "Assistant Vicar1"
+            })
+
+        if church.asst_vicar2:
+            priests.append({
+                "name": church.asst_vicar2,
+                "designation": "Assistant Vicar2"
+            })
+
+        if church.asst_vicar3:
+            priests.append({
+                "name": church.asst_vicar3,
+                "designation": "Assistant Vicar3"
+            })
 
         return Response(priests)
+    
+
+#death
+class MarkMemberDeadAPIView(APIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def post(self, request, pk):
+
+        try:
+            member = Member.objects.get(
+                pk=pk,
+                church=request.user.church
+            )
+        except Member.DoesNotExist:
+            return Response(
+                {"error": "Member not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 🔥 Prevent duplicate death marking
+        if member.expired:
+            return Response(
+                {"error": "Member is already marked as deceased"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 🔥 Call service (no head assignment anymore)
+        try:
+            handle_member_death(member)
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 🔥 Create or get death register
+        death, created = DeathRegister.objects.get_or_create(
+            member=member,
+            defaults={
+                "church": member.church,
+                "status": "PENDING"
+            }
+        )
+
+        return Response(
+            {
+                "message": "Member marked as deceased",
+                "death_register_id": death.id,
+                "status": death.status
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+#List All heads
+class FamilyHeadListAPIView(ListAPIView):
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        return Member.objects.filter(
+            church=self.request.user.church,
+            is_family_head=True,
+            is_active=True
+        ).select_related("family")
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+
+        data = [
+            {
+                "member_id": m.id,
+                "name": m.name,
+                "family_name": m.family.family_name,
+                "house_name": m.house_name
+            }
+            for m in queryset
+        ]
+
+        return Response(data)
+    
+
+
+# views.py
+
+class EventListCreateAPIView(ListCreateAPIView):
+    serializer_class = EventSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        return Events.objects.filter(
+            church=self.request.user.church
+        )
+    
+    def perform_create(self, serializer):
+        serializer.save(church=self.request.user.church)
+
+class EventDetailAPIView(RetrieveUpdateDestroyAPIView):
+    serializer_class = EventSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        return Events.objects.filter(
+            church=self.request.user.church
+        )

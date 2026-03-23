@@ -1,6 +1,6 @@
 from datetime import date
 from decimal import Decimal
-from .models import Package
+from .models import Member, Package
 from django.db import transaction
 
 # =====================================================
@@ -372,80 +372,43 @@ def get_next_subscription_action(church):
 
 
 
+#death
+from django.db.models import Q
+
 @transaction.atomic
-def handle_member_death(member, *, new_head_id=None):
-    """
-    Handles member death safely:
-    - Marks member as expired & inactive
-    - Removes head-of-family flag
-    - Optionally assigns a new family head
-    """
+def handle_member_death(member):
 
     if member.expired:
-        return  # idempotent
+        return
 
-    family = member.family
+    # 🔥 If head → remove head
+    if member.is_family_head:
+        member.is_family_head = False
 
-    # 1️⃣ Mark member as deceased
+        if hasattr(member, "user"):
+            member.user.is_active = False
+            member.user.save(update_fields=["is_active"])
+
+    # 🔥 Find spouse from BOTH sides (IMPORTANT FIX)
+    spouse = Member.objects.filter(
+        Q(spouse=member) | Q(pk=member.spouse_id)
+    ).first()
+
+    # 2️⃣ Mark member dead
     member.expired = True
     member.is_active = False
-    member.is_family_head = False
-    member.save(
-        update_fields=["expired", "is_active", "is_family_head"]
-    )
+    member.inactive_reason = "DECEASED"
+    member.inactive_date = date.today()
+    member.save()
 
-    # 2️⃣ Assign new family head (if provided)
-    if new_head_id:
-        new_head = (
-            family.members
-            .filter(id=new_head_id, expired=False, is_active=True)
-            .first()
-        )
+    # 3️⃣ Handle spouse correctly
+    if spouse:
+        spouse.marital_status = "WIDOWED"
+        spouse.spouse = None
+        spouse.save(update_fields=["marital_status", "spouse"])
 
-        if not new_head:
-            raise ValueError("Invalid new family head")
-
-        new_head.is_family_head = True
-        new_head.save(update_fields=["is_family_head"])
-
-
-#death register
-from django.db import transaction
-from django.core.exceptions import ValidationError
-from registry.models import DeathRegister
-from registry.models import Member
-
-
-def register_death(member, validated_data):
-    if member.expired:
-        raise ValidationError("Member already marked as expired.")
-
-    if member.is_family_head:
-        raise ValidationError(
-            "Assign new family head before registering death."
-        )
-
-    with transaction.atomic():
-
-        death = DeathRegister.objects.create(
-            member=member,
-            church=member.church,
-            **validated_data
-        )
-
-        # Update member status
-        member.expired = True
-        member.is_active = False
-        member.inactive_reason = "DECEASED"
-        member.inactive_date = death.died_on
-        member.save()
-
-        # Handle spouse
-        if member.spouse:
-            member.spouse.marital_status = "WIDOWED"
-            member.spouse.save()
-
-    return death
+        member.spouse = None
+        member.save(update_fields=["spouse"])
 
 #Reo settings
 from django.db import transaction

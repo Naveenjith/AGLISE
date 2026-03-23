@@ -1,7 +1,7 @@
 from datetime import date
 
 from rest_framework import serializers
-from .models import Baptism, Bill, Church, DeathRegister, Designation, DheshaKuri, Diocese, Grade, Priest, PriestChange, RegisterSetting, Relationship, TombFee, TombType, UpgradeRequest, VilichCholluKuri, Ward, Family, Member
+from .models import Baptism, Bill, Church, DeathRegister, Designation, DheshaKuri, Diocese, Events, Grade, Priest, PriestChange, RegisterSetting, Relationship, TombFee, TombType, UpgradeRequest, VilichCholluKuri, Ward, Family, Member
 from .services import can_add_member, generate_folio_number, generate_register_number
 from rest_framework import serializers
 from .models import Package
@@ -194,12 +194,13 @@ class PriestChangeSerializer(serializers.ModelSerializer):
 
         return data
 
+
 class MemberSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Member
         fields = "__all__"
-        read_only_fields = ("church", "age")
+        read_only_fields = ("church", "age","ward", "address", "family_image")
 
     def validate(self, data):
         church = self.context["church"]
@@ -220,6 +221,11 @@ class MemberSerializer(serializers.ModelSerializer):
 
             family = data.get("family")
             house_name = data.get("house_name")
+
+            if data.get("address"):
+                raise serializers.ValidationError({
+                    "address": "Address should not be assigned manually."
+                         })
 
             if not family:
                 raise serializers.ValidationError({
@@ -263,6 +269,12 @@ class MemberSerializer(serializers.ModelSerializer):
             instance = self.instance
             relationship = data.get("relationship", instance.relationship)
             family = instance.family
+
+            # 🔥 🚨 BLOCK DIRECT EXPIRE
+            if "expired" in data:
+                raise serializers.ValidationError(
+                    "Use mark-dead API to mark a member as deceased."
+                )
 
             # 🔥 Block promoting head
             if data.get("is_family_head"):
@@ -344,7 +356,7 @@ class MemberSerializer(serializers.ModelSerializer):
         return data
 
     # -----------------------------
-    # AUTO ASSIGN WARD ON CREATE
+    # CREATE LOGIC
     # -----------------------------
     def create(self, validated_data):
         family = validated_data.get("family")
@@ -367,51 +379,19 @@ class MemberSerializer(serializers.ModelSerializer):
 
         # 🔥 Attach church
         validated_data["church"] = self.context["church"]
+
+        # 🔥 Inherit image from head
         validated_data["family_image"] = head.family_image
+        validated_data["address"] = head.address
 
         return super().create(validated_data)
 
     # -----------------------------
-    # UPDATE LOGIC (Death Request Flow)
+    # UPDATE LOGIC (CLEANED)
     # -----------------------------
     def update(self, instance, validated_data):
-
-        expired_now = validated_data.get("expired", instance.expired)
-
-        with transaction.atomic():
-
-            # 🔥 Detect first-time expire
-            if not instance.expired and expired_now is True:
-
-                # Update member fields
-                instance = super().update(instance, validated_data)
-
-                # Set inactive fields
-                instance.is_active = False
-                instance.inactive_reason = "DECEASED"
-                instance.inactive_date = date.today()
-                instance.save(update_fields=[
-                    "is_active",
-                    "inactive_reason",
-                    "inactive_date"
-                ])
-
-                # 🔥 Create death request if not exists
-                if not hasattr(instance, "death_record"):
-                    DeathRegister.objects.create(
-                        church=instance.church,
-                        member=instance,
-                        status="PENDING"
-                    )
-
-                return instance
-
-            # Normal update
-            instance = super().update(instance, validated_data)
-
-        return instance
-
-
+        # 🔥 NO DEATH LOGIC HERE ANYMORE
+        return super().update(instance, validated_data)
 
 class RelationshipSerializer(serializers.ModelSerializer):
     class Meta:
@@ -650,6 +630,7 @@ class UpgradeRequestSerializer(serializers.ModelSerializer):
 class BaptismSerializer(serializers.ModelSerializer):
 
     house_name = serializers.SerializerMethodField()
+    family_name = serializers.CharField(source="family.family_name", read_only=True)
 
     class Meta:
         model = Baptism
@@ -1041,11 +1022,41 @@ class MobileFamilyBaptismSerializer(serializers.ModelSerializer):
 
 class VilichCholluKuriSerializer(serializers.ModelSerializer):
 
+    marriage_completed = serializers.SerializerMethodField()
+
     class Meta:
         model = VilichCholluKuri
         fields = "__all__"
         read_only_fields = ("church", "marriage", "created_at")
 
+    def get_marriage_completed(self, obj):
+        return obj.marriage is not None
+
+    def validate(self, data):
+
+        church = self.context["request"].user.church
+
+        groom_name = data.get("groom_name", getattr(self.instance, "groom_name", None))
+        bride_name = data.get("bride_name", getattr(self.instance, "bride_name", None))
+        marriage_date = data.get("marriage_date", getattr(self.instance, "marriage_date", None))
+
+        qs = VilichCholluKuri.objects.filter(
+            church=church,
+            groom_name=groom_name,
+            bride_name=bride_name,
+            marriage_date=marriage_date
+        )
+
+        # 🔹 exclude current object when editing
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+
+        if qs.exists():
+            raise serializers.ValidationError(
+            "Pre-announcement already exists for this couple on this date."
+            )
+
+        return data
 
 #marriage register
 from rest_framework import serializers
@@ -1122,6 +1133,7 @@ class MarriageSerializer(serializers.ModelSerializer):
         relation_bride = data.get("relation_of_bride_with_main_member")
         family = data.get("family")
         marriage_type = data.get("marriage_type")
+        vilich = data.get("vilich_chollu_kuri")
 
         if family and family.church != church:
             raise serializers.ValidationError(
@@ -1168,6 +1180,21 @@ class MarriageSerializer(serializers.ModelSerializer):
                 {"family": "Groom must belong to the selected family."}
             )
 
+        # -------------------------
+        # VILICH VALIDATION
+        # -------------------------
+        if vilich:
+
+            if vilich.church != church:
+                raise serializers.ValidationError(
+                    {"vilich_chollu_kuri": "Invalid pre-announcement for this church."}
+                )
+
+            if vilich.marriage:
+                raise serializers.ValidationError(
+                    {"vilich_chollu_kuri": "This pre-announcement already has a marriage."}
+                )
+
         return data
 
     # ---------------------------------------------------
@@ -1178,7 +1205,6 @@ class MarriageSerializer(serializers.ModelSerializer):
         marriage_type = validated_data.get("marriage_type")
         groom_member = validated_data.get("groom_member")
         bride_member = validated_data.get("bride_member")
-        bride_name = validated_data.get("bride_name")
 
         groom_dob = validated_data.pop("groom_dob", None)
         groom_house_name = validated_data.pop("groom_house_name", "")
@@ -1197,16 +1223,28 @@ class MarriageSerializer(serializers.ModelSerializer):
         # AUTO FILL FROM PRE ANNOUNCEMENT
         # ---------------------------------------------------
         if vilich:
+
             validated_data.setdefault("groom_name", vilich.groom_name)
-            validated_data.setdefault("bride_name", vilich.bride_name)
+            validated_data.setdefault("groom_dob", vilich.groom_dob)
+            validated_data.setdefault("groom_house_name", vilich.groom_house_name)
+            validated_data.setdefault("groom_family_name", vilich.groom_family_name)
+            validated_data.setdefault("groom_address", vilich.groom_place)
+
             validated_data.setdefault("groom_father", vilich.groom_father)
             validated_data.setdefault("groom_mother", vilich.groom_mother)
+
+            validated_data.setdefault("bride_name", vilich.bride_name)
+            validated_data.setdefault("bride_dob", vilich.bride_dob)
+            validated_data.setdefault("bride_address", vilich.bride_place)
+
             validated_data.setdefault("bride_father", vilich.bride_father)
             validated_data.setdefault("bride_mother", vilich.bride_mother)
 
         with transaction.atomic():
 
-            # 🔒 LOCK GROOM ROW
+            # -------------------------
+            # LOCK GROOM
+            # -------------------------
             if groom_member:
                 groom_member = Member.objects.select_for_update().get(id=groom_member.id)
 
@@ -1215,7 +1253,9 @@ class MarriageSerializer(serializers.ModelSerializer):
                         {"groom_member": "Groom already married."}
                     )
 
-            # 🔒 LOCK BRIDE ROW
+            # -------------------------
+            # LOCK BRIDE
+            # -------------------------
             if bride_member:
                 bride_member = Member.objects.select_for_update().get(id=bride_member.id)
 
@@ -1223,21 +1263,23 @@ class MarriageSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         {"bride_member": "Bride already married."}
                     )
-                
+
+            # -------------------------
+            # STORE GROOM SNAPSHOT
+            # -------------------------
             if not groom_member:
                 validated_data["groom_dob"] = groom_dob
+                validated_data["groom_house_name"] = groom_house_name
+                validated_data["groom_family_name"] = groom_family_name
                 validated_data["groom_address"] = groom_place
 
-            # ---------------------------------------------------
+            # -------------------------
             # STORE BRIDE SNAPSHOT
-            # ---------------------------------------------------
+            # -------------------------
             if bride_member:
                 validated_data["bride_name"] = bride_member.name
                 validated_data["bride_dob"] = bride_member.dob
                 validated_data["bride_address"] = bride_member.address
-            else:
-                validated_data["bride_dob"] = validated_data.get("bride_dob")
-                validated_data["bride_address"] = validated_data.get("bride_address")
 
             marriage = Marriage.objects.create(**validated_data)
 
@@ -1253,7 +1295,6 @@ class MarriageSerializer(serializers.ModelSerializer):
                 family = groom_member.family
                 house_name = groom_member.house_name
 
-                # INTERNAL BRIDE
                 if bride_member:
 
                     bride_member.is_active = False
@@ -1269,54 +1310,49 @@ class MarriageSerializer(serializers.ModelSerializer):
                         church=church,
                         family=family,
                         house_name=house_name,
-
                         name=bride_member.name,
                         gender=bride_member.gender,
                         dob=bride_member.dob,
-
                         email=bride_member.email,
                         mobile_no=bride_member.mobile_no,
                         phone_no=bride_member.phone_no,
-
                         blood_group=bride_member.blood_group,
                         profession=bride_member.profession,
-
                         address=validated_data.get("bride_address") or groom_member.address,
-
                         grade=bride_member.grade,
                         sunday_school=bride_member.sunday_school,
                         educational_qualification=bride_member.educational_qualification,
-
                         relationship=relation_bride,
                         father_name=bride_member.father_name,
                         mother_name=bride_member.mother_name,
-
                         marital_status="MARRIED",
                         is_active=True,
                     )
 
-                # EXTERNAL BRIDE
                 else:
+
+                    bride_name = validated_data.get("bride_name")
+
+                    if not bride_name:
+                        raise serializers.ValidationError(
+                            {"bride_name": "Bride name is required for external bride."}
+                        )
 
                     new_bride = Member.objects.create(
                         church=church,
                         family=family,
                         house_name=house_name,
-
                         name=bride_name,
                         gender="FEMALE",
                         dob=validated_data.get("bride_dob"),
-
                         father_name=validated_data.get("bride_father"),
                         mother_name=validated_data.get("bride_mother"),
-
                         relationship=relation_bride,
                         marital_status="MARRIED",
                         address=validated_data.get("bride_address") or groom_member.address,
                         is_active=True,
                     )
 
-                # SPOUSE LINKING
                 groom_member.spouse = new_bride
                 new_bride.spouse = groom_member
 
@@ -1363,10 +1399,8 @@ class MarriageSerializer(serializers.ModelSerializer):
                 DheshaKuri.objects.create(
                     church=church,
                     marriage=marriage,
-
                     groom_confession_date=groom_confession_date,
                     bride_confession_date=bride_confession_date,
-
                     groom_name=groom_member.name if groom_member else validated_data.get("groom_name"),
                     groom_dob=groom_member.dob if groom_member else groom_dob,
                     groom_age=groom_member.age if groom_member else groom_age,
@@ -1375,7 +1409,6 @@ class MarriageSerializer(serializers.ModelSerializer):
                     groom_place=groom_member.address if groom_member else groom_place,
                     groom_father=validated_data.get("groom_father"),
                     groom_mother=validated_data.get("groom_mother"),
-
                     bride_name=bride_member.name,
                     bride_dob=bride_member.dob,
                     bride_age=bride_member.age,
@@ -1384,7 +1417,6 @@ class MarriageSerializer(serializers.ModelSerializer):
                     bride_father=validated_data.get("bride_father"),
                     bride_mother=validated_data.get("bride_mother"),
                     bride_place=bride_member.address,
-
                     transfer_to=validated_data.get("transfer_to"),
                 )
 
@@ -1397,8 +1429,7 @@ class MarriageSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data.pop("bride_member", None)
         data.pop("groom_member", None)
-        return data
-#mrg certificate for church
+        return data #mrg certificate for church
 class MarriageCertificateSerializer(serializers.ModelSerializer):
 
     church_name = serializers.CharField(source="church.name")
@@ -1582,45 +1613,59 @@ class InactiveMemberSerializer(serializers.ModelSerializer):
 #Death Register
 class DeathRegisterSerializer(serializers.ModelSerializer):
 
-    member_id = serializers.PrimaryKeyRelatedField(
-        queryset=Member.objects.filter(expired=True),
-        source="member"
-    )
+    member = serializers.PrimaryKeyRelatedField(read_only=True)
+    member_name = serializers.CharField(source="member.name", read_only=True)
 
     class Meta:
         model = DeathRegister
         fields = "__all__"
-        read_only_fields = ("reg_no", "church")
+        read_only_fields = ("reg_no", "church", "member", "status")
 
     def validate(self, data):
-
-        member = self.instance.member if self.instance else data.get("member")
+        instance = self.instance
+        member = instance.member if instance else None
 
         if not member:
             raise serializers.ValidationError("Member is required.")
 
-        # Member must be expired
+        # 🔥 Member must already be expired (safety check)
         if not member.expired:
             raise serializers.ValidationError(
                 "Member must be marked expired first."
             )
 
-        # Prevent duplicate death record
-        if not self.instance and hasattr(member, "death_record"):
-            raise serializers.ValidationError(
-                "Death record already exists for this member."
-            )
+        # 🔥 Merge existing + incoming values for validation
+        died_on = data.get("died_on", instance.died_on)
+        funeral_on = data.get("funeral_on", instance.funeral_on)
+        tomb_type = data.get("tomb_type", instance.tomb_type)
+        tomb_charge = data.get("tomb_charge", instance.tomb_charge)
+        reason_of_death=data.get("reason_of_death",instance.reason_of_death)
 
-        tomb_type = data.get("tomb_type")
-        tomb_charge = data.get("tomb_charge")
+        # 🔥 Required validations for completion readiness
+        if not died_on:
+            raise serializers.ValidationError({
+                "died_on": "Date of death is required."
+            })
 
-        # Optional consistency check
-        if tomb_type and tomb_charge is None:
-            raise serializers.ValidationError(
-            "Tomb charge must be provided when tomb type is selected."
-            )
+        if not funeral_on:
+            raise serializers.ValidationError({
+                "funeral_on": "Funeral date is required."
+            })
 
+        if not tomb_type:
+            raise serializers.ValidationError({
+                "tomb_type": "Tomb type is required."
+            })
 
+        if tomb_charge is None:
+            raise serializers.ValidationError({
+                "tomb_charge": "Tomb charge must be provided."
+            })
+        
+        if not reason_of_death or not reason_of_death.strip():
+            raise serializers.ValidationError({
+            "reason_of_death": "Reason of death is required."
+            })
         return data
 
 from django.contrib.auth import get_user_model
@@ -1653,6 +1698,7 @@ class FamilyHeadUpdateSerializer(serializers.ModelSerializer):
             "joining_date",
             "transferred_from",
             "address",
+            "relationship"
         ]
 
     def validate(self, data):
@@ -1705,3 +1751,11 @@ class PriestNameSerializer(serializers.ModelSerializer):
     class Meta:
         model = Church
         fields = ["vicar", "asst_vicar1", "asst_vicar2", "asst_vicar3"]
+
+
+
+class EventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Events
+        fields = '__all__'
+        read_only_fields = ("church", "created_at")

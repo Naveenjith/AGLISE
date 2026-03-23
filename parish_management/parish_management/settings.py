@@ -73,7 +73,8 @@ CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
-    "https://demo5.appziatec.in"
+    "https://demo5.appziatec.in",
+    "http://192.168.1.38:8000/"
 ]
 
 
