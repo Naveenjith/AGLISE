@@ -32,6 +32,7 @@ from .views import (
     MarriageDetailAPIView,
     MarriageListCreateAPIView,
     MemberProfileAPIView,
+    MembersUnderHeadAPIView,
     MyChurchAPIView,
     PackageListAPIView,
     PriestChangeDetailView,
@@ -168,4 +169,5 @@ urlpatterns = [
     path("members/family-heads/",FamilyHeadListAPIView.as_view(),name="family-head-list"),
     path("events/", EventListCreateAPIView.as_view(), name="event-list-create"),
     path("events/<int:pk>/", EventDetailAPIView.as_view(), name="event-detail"),
+    path("members/by-head/<int:pk>/",MembersUnderHeadAPIView.as_view(),name="members-under-head")
 ]

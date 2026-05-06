@@ -23,6 +23,7 @@ from rest_framework.exceptions import ValidationError
 from django.db.models import Count,Sum
 from django.db.models import Q,F
 from registry.services import generate_register_number
+from rest_framework.exceptions import NotFound
 class ChurchContextMixin:
 
     def get_serializer_context(self):
@@ -1788,7 +1789,7 @@ class DeathRegisterListAPIView(ListAPIView):
 
         queryset = DeathRegister.objects.filter(
             church=church
-        ).select_related("member")
+        ).select_related("member","member__family")
 
         status_param = self.request.query_params.get("status")
         if status_param:
@@ -2196,3 +2197,41 @@ class EventDetailAPIView(RetrieveUpdateDestroyAPIView):
         return Events.objects.filter(
             church=self.request.user.church
         )
+
+
+
+class MembersUnderHeadAPIView(ListAPIView):
+    serializer_class = MemberSerializer
+    permission_classes = [IsAuthenticated, IsChurchUser]
+
+    def get_queryset(self):
+        church = self.request.user.church
+        head_id = self.kwargs.get("pk")
+
+        # 🔥 Get head safely
+        try:
+            head = Member.objects.get(
+                pk=head_id,
+                church=church,
+                is_family_head=True,
+                is_active=True,
+                expired=False
+            )
+        except Member.DoesNotExist:
+            raise NotFound("Active family head not found.")
+
+        # 🔥 ONLY ACTIVE + NOT EXPIRED MEMBERS (EXCLUDING HEAD)
+        return Member.objects.filter(
+            church=church,
+            family=head.family,
+            house_name__iexact=head.house_name,
+            is_active=True,
+            expired=False   # ✅ FIXED
+        ).exclude(
+            pk=head.id
+        ).select_related(
+            "family",
+            "relationship",
+            "ward",
+            "grade"
+        ).order_by("name")

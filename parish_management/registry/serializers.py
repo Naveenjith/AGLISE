@@ -1615,6 +1615,15 @@ class DeathRegisterSerializer(serializers.ModelSerializer):
 
     member = serializers.PrimaryKeyRelatedField(read_only=True)
     member_name = serializers.CharField(source="member.name", read_only=True)
+    family_name = serializers.CharField(
+        source="member.family.family_name",
+        read_only=True
+    )
+
+    house_name = serializers.CharField(
+        source="member.house_name",
+        read_only=True
+    )
 
     class Meta:
         model = DeathRegister
